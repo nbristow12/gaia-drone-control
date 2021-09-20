@@ -11,7 +11,7 @@ Environment setup instructions for ROS, Arucopter SITL, and other depencdencies 
 ## Demonstrations
 
 
-### Basic Arducopter SITL Example
+### Basic Arducopter SITL Example w/ Mavros telemetry
 
 In one terminal:
 ```bash
@@ -21,4 +21,17 @@ In a second terminal:
 ```bash
 cd ~/ardupilot/ArduCopter
 ../Tools/autotest/sim_vehicle.py -f gazebo-iris --console --map
+```
+
+Launch a mavros instance in a third terminal:
+```bash
+cd ~/catkin_ws/src/GAIA-drone-control/launch
+roslaunch apm.launch
+```
+
+The mavros telemetry can then be viewed in a fourth terminal. First verify publishing rate with rostopic hz, then see contents with echo:
+```bash
+rostopic hz /mavros/local_position/pose
+ctrl-c
+rostopic echo /mavros/local_position/pose
 ```
