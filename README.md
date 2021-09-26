@@ -26,7 +26,7 @@ cd ~/ardupilot/ArduCopter
 Launch a mavros instance in a third terminal:
 ```bash
 cd ~/catkin_ws/src/GAIA-drone-control/launch
-roslaunch apm.launch
+roslaunch mavros-telem.launch
 ```
 
 The mavros telemetry can then be viewed in a fourth terminal. First verify publishing rate with rostopic hz, then see contents with echo:
