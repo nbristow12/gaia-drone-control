@@ -11,7 +11,7 @@ Environment setup instructions for ROS, Arucopter SITL, and other depencdencies 
 ## Demonstrations
 
 
-### Basic Arducopter SITL Example w/ Mavros telemetry
+### Basic Arducopter SITL Startup Example w/ Mavros telemetry
 
 In one terminal:
 ```bash
@@ -35,3 +35,18 @@ rostopic hz /mavros/local_position/pose
 ctrl-c
 rostopic echo /mavros/local_position/pose
 ```
+
+This completes the drone startup,
+\
+### Manual Drone Control Using Arducopter SITL Terminal
+The following commands can be entered in the arducopter terminal (second terminal from instructions above) to control the vehicle:
+#### Takeoff:
+```bash
+GUIDED
+arm throttle
+takeoff 10
+```
+This places the drone into guided mode (so it can accept computer control), arms it, and tells it to take off to 10m. 
+\
+\
+After takeoff the "position x y z" or "velocity vx vy vz" commands can be used to move the drone. For position x,y, and z are relative distances to move  and in north, east, down coordinates, e.g. position 1 0 -1 would move 1m forward and 1m up. The "help" command lists these and other commands, and typing most commands such as "position" or "velocity" without arguments provides some basic instructions on how to use them.
