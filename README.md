@@ -4,9 +4,9 @@ gaia-drone-control includes control and simulation methods developed for control
 
 ## Installation
 
-Clone this package into your catkin_ws/src folder, and use catkin build or catkin_make as appropriate to build the ROS nodes.
+If you don't already have a catkin_ws folder you prefer to use, folder, and use catkin build or catkin_make as appropriate to build the ROS nodes.
 
-Environment setup instructions for ROS, Arucopter SITL, and other depencdencies still to come.
+See below for environment setup instructions for ROS, Arucopter SITL, and other dependencies.
 
 ## Demonstrations
 
@@ -50,3 +50,60 @@ This places the drone into guided mode (so it can accept computer control), arms
 \
 \
 After takeoff the "position x y z" or "velocity vx vy vz" commands can be used to move the drone. For position x,y, and z are relative distances to move  and in north, east, down coordinates, e.g. position 1 0 -1 would move 1m forward and 1m up. The "help" command lists these and other commands, and typing most commands such as "position" or "velocity" without arguments provides some basic instructions on how to use them.
+
+## Environment Setup
+
+Designed to be installed on a Jetson mini running Ubuntu 18.04. Can also be installed on WSL or Virtualbox.
+
+### Step 1: Ros Melodic/Mavros/Gazebo Installation:
+Follow the install instructions for ROS Melodic on the ROS wiki. 
+http://wiki.ros.org/melodic/Installation/Ubuntu
+
+Choose 'sudo apt install ros-melodic-desktop' when choosing how many of the resources to install, this includes the necessary and useful simulation packages without using as much storage space as the desktop-full option.
+
+After completing these steps ensure the 'catkin' command is recognized. If it is not, install with the following command:
+```bash
+sudo apt-get install python3-catkin-tools
+```
+
+Install mavros using the following command:
+```bash
+sudo apt install ros-melodic-mavros ros-melodic-mavros-extras
+```
+Install Gazebo:
+```bash
+sudo apt-get install ros-melodic-gazebo-ros-pkgs ros-melodic-gazebo-ros-control
+```
+
+### Step 2: Arducopter SITL installation
+Overarching tutorial:
+https://ardupilot.org/dev/docs/setting-up-sitl-on-linux.html
+From there first follow link to:
+https://ardupilot.org/dev/docs/building-setup-linux.html#building-setup-linux
+
+#### Clone repo, checkout 4.0.7 release
+```bash
+cd ~
+git clone https://github.com/ArduPilot/ardupilot.git
+cd ardupilot
+git checkout 0bb18a153c
+git submodule update --init --recursive
+```
+#### Install requirements
+Use tools script included with the repo
+```bash
+cd ~/arducopter
+Tools/environment_install/install-prereqs-ubuntu.sh -y
+```
+Reload the path (will become permanent when device is restarted)
+```bash
+. ~/.profile
+```
+#### Build Arducopter
+Instructions at https://github.com/ArduPilot/ardupilot/blob/master/BUILD.md
+Use board type 'sitl' (software in the loop), which is also the default
+```bash
+./waf configure --board sitl
+./waf copter
+```
+From here the build is complete and should be ready to follow the demo tutorials above.
