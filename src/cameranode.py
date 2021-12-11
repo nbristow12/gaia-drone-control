@@ -2,6 +2,9 @@
 # license removed for brevity
 import rospy
 from sensor_msgs.msg import Image
+import os
+import PySpin
+import sys
 
 #seems to find device automatically if connected? Why don't we do this?
 serialstring = 'DeviceSerialNumber'
@@ -11,8 +14,61 @@ def publishimages():
     pub = rospy.Publisher('/camera/image', Image, queue_size=3)
     rospy.init_node('cameranode', anonymous=False)
 
+    """
+    This function acquires images from a device.
+
+    :param cam: Camera to acquire images from.
+    :param nodemap: Device nodemap.
+    :param nodemap_tldevice: Transport layer device nodemap.
+    :type cam: CameraPtr
+    :type nodemap: INodeMap
+    :type nodemap_tldevice: INodeMap
+    :return: True if successful, False otherwise.
+    :rtype: bool
+    """
+
     try:
         result = True
+        # Retrieve singleton reference to system object
+        system = PySpin.System.GetInstance()
+
+        # Get current library version
+        version = system.GetLibraryVersion()
+        print('Library version: %d.%d.%d.%d' % (version.major, version.minor, version.type, version.build))
+
+        # Retrieve list of cameras from the system
+        cam_list = system.GetCameras()
+
+        num_cameras = cam_list.GetSize()
+
+        print('Number of cameras detected: %d' % num_cameras)
+
+        # Finish if there are no cameras
+        if num_cameras == 0:
+
+            # Clear camera list before releasing system
+            cam_list.Clear()
+
+            # Release system instance
+            system.ReleaseInstance()
+
+            print('Not enough cameras!')
+            input('Done! Press Enter to exit...')
+            return False
+
+        # Run example on each camera
+        cam = None
+        for i, x in enumerate(cam_list):
+            cam = x
+
+        # Retrieve TL device nodemap and print device information
+        nodemap_tldevice = cam.GetTLDeviceNodeMap()
+
+        # Initialize camera
+        cam.Init()
+
+        # Retrieve GenICam nodemap
+        nodemap = cam.GetNodeMap()
 
         # Set acquisition mode to continuous
         #
@@ -111,8 +167,8 @@ def publishimages():
                 #  done whenever a complete image is expected or required.
                 #  Further, check image status for a little more insight into
                 #  why an image is incomplete.
-                if image_raw.IsIncomplete():
-                    print('Image incomplete with image status %d ...' % image_raw.GetImageStatus())
+                if img_raw.IsIncomplete():
+                    print('Image incomplete with image status %d ...' % img_raw.GetImageStatus())
 
                 else:
 
@@ -122,9 +178,9 @@ def publishimages():
                     #  Images have quite a bit of available metadata including
                     #  things such as CRC, image status, and offset values, to
                     #  name a few.
-                    img.width = image_raw.GetWidth()
-                    img.height = image_raw.GetHeight()
-                    print('Grabbed Image %d, width = %d, height = %d' % (i, width, height))
+                    img.width = img_raw.GetWidth()
+                    img.height = img_raw.GetHeight()
+                    print('Grabbed Image %d, width = %d, height = %d' % (i, img.width, img.height))
 
                     #  Convert image to mono 8
                     #
@@ -136,7 +192,7 @@ def publishimages():
                     #
                     #  When converting images, color processing algorithm is an
                     #  optional parameter.
-                    image_converted = image_raw.Convert(PySpin.PixelFormat_Mono8, PySpin.HQ_LINEAR)
+                    image_converted = img_raw.Convert(PySpin.PixelFormat_Mono8, PySpin.HQ_LINEAR)
 
                     #TODO: Add converted image to ros image, probably via a conversion to OpenCV Matrix (https://stackoverflow.com/questions/55024360/retrive-frames-from-flir-cameras-using-opencv)
                 
@@ -150,7 +206,7 @@ def publishimages():
                     #  Images retrieved directly from the camera (i.e. non-converted
                     #  images) need to be released in order to keep from filling the
                     #  buffer.
-                    image_raw.Release()
+                    img_raw.Release()
                     print('')
 
             except PySpin.SpinnakerException as ex:
@@ -163,6 +219,21 @@ def publishimages():
         #  Ending acquisition appropriately helps ensure that devices clean up
         #  properly and do not need to be power-cycled to maintain integrity.
         cam.EndAcquisition()
+
+        # Deinitialize camera
+        cam.DeInit()
+
+        # Release reference to camera
+        # NOTE: Unlike the C++ examples, we cannot rely on pointer objects being automatically
+        # cleaned up when going out of scope.
+        # The usage of del is preferred to assigning the variable to None.
+        del cam
+
+        # Clear camera list before releasing system
+        cam_list.Clear()
+
+        # Release system instance
+        system.ReleaseInstance()
     
     except PySpin.SpinnakerException as ex:
         print('Error: %s' % ex)
