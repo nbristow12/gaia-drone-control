@@ -66,6 +66,11 @@ After completing these steps ensure the 'catkin' command is recognized. If it is
 sudo apt-get install python3-catkin-tools
 ```
 
+Install necessary computer vision tools:
+```bash
+sudo apt-get install ros-melodic-vision-msgs ros-melodic-vision-opencv ros-melodic-cv-bridge
+```
+
 Install mavros using the following command:
 ```bash
 sudo apt install ros-melodic-mavros ros-melodic-mavros-extras
