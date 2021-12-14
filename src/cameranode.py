@@ -159,7 +159,7 @@ def publishimages():
                 img_raw = cam.GetNextImage(1000)
                 img = Image()
                 img.header.seq = i
-                .header.stamp = ros::Time::now();
+                img.header.stamp = rospy.Time.now()
 
                 #  Ensure image completion
                 #
@@ -200,7 +200,7 @@ def publishimages():
                     image_numpy = image_converted.GetNDArray()
 
                     #assign image to ros structure
-                    image.data = image_numpy
+                    img.data = image_numpy.flatten().tolist()
                     #send image on topic
                     pub.publish(img)
 
