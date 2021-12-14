@@ -159,6 +159,7 @@ def publishimages():
                 img_raw = cam.GetNextImage(1000)
                 img = Image()
                 img.header.seq = i
+                .header.stamp = ros::Time::now();
 
                 #  Ensure image completion
                 #
@@ -180,6 +181,7 @@ def publishimages():
                     #  name a few.
                     img.width = img_raw.GetWidth()
                     img.height = img_raw.GetHeight()
+                    img.step = img.height #valid for 8 bit greyscale
                     print('Grabbed Image %d, width = %d, height = %d' % (i, img.width, img.height))
 
                     #  Convert image to mono 8
@@ -194,9 +196,11 @@ def publishimages():
                     #  optional parameter.
                     image_converted = img_raw.Convert(PySpin.PixelFormat_Mono8, PySpin.HQ_LINEAR)
 
-                    #TODO: Add converted image to ros image, probably via a conversion to OpenCV Matrix (https://stackoverflow.com/questions/55024360/retrive-frames-from-flir-cameras-using-opencv)
-                
+                    #get numpy image
+                    image_numpy = image_converted.GetNDArray()
 
+                    #assign image to ros structure
+                    image.data = image_numpy
                     #send image on topic
                     pub.publish(img)
 
