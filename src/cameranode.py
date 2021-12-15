@@ -142,6 +142,7 @@ def publishimages():
 
         # Retrieve, convert, and save images
         i = 0
+        img = Image()
         while not rospy.is_shutdown():
             i += 1
             try:
@@ -157,7 +158,6 @@ def publishimages():
                 #  needed, the image must be released in order to keep the
                 #  buffer from filling up.
                 img_raw = cam.GetNextImage(1000)
-                img = Image()
                 img.header.seq = i
                 img.header.stamp = rospy.Time.now()
 
