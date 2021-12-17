@@ -17,10 +17,10 @@ print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_d
 # import torch.backends.cudnn as cudnn
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # YOLOv5 root directory
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+GAIA_DRONE_ROOT = FILE.parents[0]  # YOLOv5 GAIA_DRONE_root directory
+if str(GAIA_DRONE_ROOT) not in sys.path:
+    sys.path.append(str(GAIA_DRONE_ROOT))  # add GAIA_DRONE_ROOT to PATH
+GAIA_DRONE_ROOT = Path(os.path.relpath(GAIA_DRONE_ROOT, Path.cwd()))  # relative
 
 from models.experimental import attempt_load
 from utils.datasets import LoadImages, LoadStreams
@@ -34,8 +34,8 @@ def main():
     
    
     print('Initializing model')
-    weights=ROOT / 'yolov5s.pt'
-    # weights=ROOT / 'smoke.pt'
+    weights=GAIA_DRONE_ROOT / 'yolov5s.pt'
+    # weights=GAIA_DRONE_ROOT / 'smoke.pt'
     model, device, names = detect_init(weights)
     imgsz = [640,640] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
@@ -44,7 +44,7 @@ def main():
     print('Loading image')
     img_path = 'traffic.jpeg'
     # img_path = 'smoke_stack.jpeg'
-    # img_path = str(ROOT / 'data/images/zidane.jpg')
+    # img_path = str(GAIA_DRONE_ROOT / 'data/images/zidane.jpg')
     img = cv2.imread(img_path)
     
     
@@ -79,8 +79,8 @@ def main():
 
 def detect(img0,imgsz,model,device,names):
     
-    # weights=ROOT / 'yolov5s.pt'  # model.pt path(s)
-    # source=ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
+    # weights=GAIA_DRONE_ROOT / 'yolov5s.pt'  # model.pt path(s)
+    # source=GAIA_DRONE_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
     # imgsz=640  # inference size (pixels)
     conf_thres=0.25  # confidence threshold
     iou_thres=0.45  # NMS IOU threshold
@@ -96,7 +96,7 @@ def detect(img0,imgsz,model,device,names):
     augment=False  # augmented inference
     visualize=False  # visualize features
     update=False  # update all models
-    # project=ROOT / 'runs/detect'  # save results to project/name
+    # project=GAIA_DRONE_ROOT / 'runs/detect'  # save results to project/name
     # name='exp'  # save results to project/name
     # exist_ok=False  # existing project/name ok, do not increment
     # line_thickness=3  # bounding box thickness (pixels)
@@ -150,10 +150,26 @@ def detect(img0,imgsz,model,device,names):
     # ind = np.argmax(conf)
     # return obj[ind].bounding_box
     #-------------------------------------------------------------------------#
+
+    #------uncomment for just returning car with max confidence------------#
+    #types = np.array([ob.object_class for ob in obj])
+    #print(types)
+    #cars = obj[types == 'car']    
+    #conf = np.array([ob.confidence for ob in cars])
+    #ind = np.argmax(conf)
+    #return np.array(cars[ind])
+    bestcar = []
+    bestconf = 0
+    for ob in obj:
+        if ob.object_class == 'car' and ob.confidence > bestconf:
+            bestcar = [ob]
+            bestconf = ob.confidence
+    return bestcar
+    #-------------------------------------------------------------------------#
     
     return obj
 
-def detect_init(weights=ROOT / 'yolov5s.pt'):
+def detect_init(weights=GAIA_DRONE_ROOT / 'yolov5s.pt'):
     
     device = select_device(device='',batch_size=None)   # usually cpu or cuda
     w = str(weights[0] if isinstance(weights, list) else weights) # model weights, from .pt file
