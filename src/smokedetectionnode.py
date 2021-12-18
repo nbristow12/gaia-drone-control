@@ -38,7 +38,7 @@ def imagecallback(img):
     global pub,box
     global imgsz, model, device, names
     box = BoundingBox2D()
-    print("Reading from buffer\n")
+    # print("Reading from buffer\n")
     img_numpy = np.frombuffer(img.data,dtype=np.uint8).reshape(img.height,img.width,-1)
     print("Image read\n\n")
     #image test code
@@ -47,8 +47,10 @@ def imagecallback(img):
     
     #TODO: Run network, set bounding box parameters
     car = detect_car(img_numpy,imgsz,model,device,names)
-    print(car)
+    if len(car) != 0:
+        print(car[0])
 
+    print("publishing bounding box\n")
     pub.publish(box)
 
 def init_detection_node():
