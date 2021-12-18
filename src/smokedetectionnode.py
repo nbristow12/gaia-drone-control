@@ -53,7 +53,7 @@ def imagecallback(img):
     if len(car) != 0:
         print(car[0].bounding_box)
     end = time.time()
-    print("publishing bounding box after ",end-start, " seconds \n")
+    print("publishing bounding box for image", img.header.seq,"after",end-start, "seconds \n")
     pub.publish(box)
 
 def init_detection_node():
