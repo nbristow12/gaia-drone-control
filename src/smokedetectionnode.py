@@ -29,6 +29,8 @@ from utils.torch_utils import select_device
 
 from utils.augmentations import letterbox
 
+import time
+
 #global publisher and boundingbox
 global pub,box
 #global initialized variables for detection model
@@ -38,6 +40,7 @@ def imagecallback(img):
     global pub,box
     global imgsz, model, device, names
     box = BoundingBox2D()
+    start = time.time()
     # print("Reading from buffer\n")
     img_numpy = np.frombuffer(img.data,dtype=np.uint8).reshape(img.height,img.width,-1)
     print("Image read\n\n")
@@ -49,8 +52,8 @@ def imagecallback(img):
     car = detect_car(img_numpy,imgsz,model,device,names)
     if len(car) != 0:
         print(car[0].bounding_box)
-
-    print("publishing bounding box\n")
+    end = time.time()
+    print("publishing bounding box after ",end-start, " seconds \n")
     pub.publish(box)
 
 def init_detection_node():
