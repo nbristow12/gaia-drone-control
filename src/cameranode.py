@@ -5,13 +5,14 @@ from sensor_msgs.msg import Image
 import os
 import PySpin
 import sys
+import cv2
 
 #seems to find device automatically if connected? Why don't we do this?
 serialstring = 'DeviceSerialNumber'
 #serialstring = '18285036'
 
 def publishimages():
-    pub = rospy.Publisher('/camera/image', Image, queue_size=3)
+    pub = rospy.Publisher('/camera/image', Image, queue_size=1)
     rospy.init_node('cameranode', anonymous=False)
 
     """
@@ -198,6 +199,9 @@ def publishimages():
 
                     #get numpy image
                     image_numpy = image_converted.GetNDArray()
+
+                    # cv2.imshow('image window',image_numpy)
+                    # cv2.waitKey(25)
 
                     #assign image to ros structure
                     img.data = image_numpy.flatten().tolist()

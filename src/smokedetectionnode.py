@@ -58,7 +58,7 @@ def imagecallback(img):
 
 def init_detection_node():
     global pub,box
-    pub = rospy.Publisher('/gaia/bounding_box', BoundingBox2D, queue_size=3)
+    pub = rospy.Publisher('/gaia/bounding_box', BoundingBox2D, queue_size=1)
     box = BoundingBox2D()
 
     # Initialize detection code before subscriber because this takes some time
