@@ -48,7 +48,7 @@ def imagecallback(img):
     #TODO: Run network, set bounding box parameters
     car = detect_car(img_numpy,imgsz,model,device,names)
     if len(car) != 0:
-        print(car[0])
+        print(car[0].bounding_box)
 
     print("publishing bounding box\n")
     pub.publish(box)
