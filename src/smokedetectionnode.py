@@ -111,7 +111,8 @@ def detect_car(img0,imgsz,model,device,names):
     # Padded resize
     img = letterbox(img0, stride=stride, auto=True)[0]
     # Convert
-    img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+    # img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+    img = np.array((img,img,img))
     img = np.ascontiguousarray(img)
     # imgsz = img.shape
     seen = 0
@@ -126,6 +127,7 @@ def detect_car(img0,imgsz,model,device,names):
     pred = model(img, augment=augment, visualize=visualize)[0]
     #NMS
     pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
+    obj = [] # initializing output list
     # Process predictions
     for i, det in enumerate(pred):  # per image
         seen += 1
@@ -136,7 +138,6 @@ def detect_car(img0,imgsz,model,device,names):
             # Rescale boxes from img_size to im0 size
             det[:, :4] = scale_coords(img.shape[2:], det[:, :4], img0.shape).round()
             # Write results
-            obj = [] # initializing output list
             for *xyxy, conf, cls in reversed(det):
                 
                 # extracting bounding box, confidence level, and name for each object
