@@ -17,7 +17,7 @@ print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_d
 # import torch.backends.cudnn as cudnn
 
 FILE = Path(__file__).resolve()
-GAIA_DRONE_ROOT = FILE.parents[0]  # YOLOv5 GAIA_DRONE_root directory
+GAIA_DRONE_ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(GAIA_DRONE_ROOT) not in sys.path:
     sys.path.append(str(GAIA_DRONE_ROOT))  # add GAIA_DRONE_ROOT to PATH
 GAIA_DRONE_ROOT = Path(os.path.relpath(GAIA_DRONE_ROOT, Path.cwd()))  # relative
