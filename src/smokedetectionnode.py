@@ -17,10 +17,10 @@ import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
 
 FILE = Path(__file__).resolve()
-GAIA_DRONE_ROOT = FILE.parents[0]  # YOLOv5 root directory
-if str(GAIA_DRONE_ROOT) not in sys.path:
-    sys.path.append(str(GAIA_DRONE_ROOT))  # add GAIA_DRONE_ROOT to PATH
-GAIA_DRONE_ROOT = Path(os.path.relpath(GAIA_DRONE_ROOT, Path.cwd()))  # relative
+YOLOv5_ROOT = FILE.parents[1] / 'yolov5_smoke'  # YOLOv5 root directory
+if str(YOLOv5_ROOT) not in sys.path:
+    sys.path.append(str(YOLOv5_ROOT))  # add YOLOv5_ROOT to PATH
+YOLOv5_ROOT = Path(os.path.relpath(YOLOv5_ROOT, Path.cwd()))  # relative
 
 from models.experimental import attempt_load
 from utils.datasets import LoadImages, LoadStreams
@@ -59,8 +59,8 @@ def init_detection_node():
     # Initialize detection code before subscriber because this takes some time
     global imgsz, model, device, names
     print('Initializing model')
-    weights=GAIA_DRONE_ROOT / 'yolov5s.pt'
-    # weights=GAIA_DRONE_ROOT / 'smoke.pt'
+    weights=YOLOv5_ROOT / 'yolov5s.pt'
+    # weights=YOLOv5_ROOT / 'smoke.pt'
     model, device, names = detect_init(weights)
     imgsz = [640,640] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
@@ -69,7 +69,7 @@ def init_detection_node():
     print('Loading image')
     img_path = 'traffic.jpeg'
     # img_path = 'smoke_stack.jpeg'
-    # img_path = str(GAIA_DRONE_ROOT / 'data/images/zidane.jpg')
+    # img_path = str(YOLOv5_ROOT / 'data/images/zidane.jpg')
     img = cv2.imread(img_path)
 
     # End detection initialization
@@ -81,8 +81,8 @@ def init_detection_node():
 
 def detect_car(img0,imgsz,model,device,names):
     
-    # weights=GAIA_DRONE_ROOT / 'yolov5s.pt'  # model.pt path(s)
-    # source=GAIA_DRONE_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
+    # weights=YOLOv5_ROOT / 'yolov5s.pt'  # model.pt path(s)
+    # source=YOLOv5_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
     # imgsz=640  # inference size (pixels)
     conf_thres=0.25  # confidence threshold
     iou_thres=0.45  # NMS IOU threshold
@@ -98,7 +98,7 @@ def detect_car(img0,imgsz,model,device,names):
     augment=False  # augmented inference
     visualize=False  # visualize features
     update=False  # update all models
-    # project=GAIA_DRONE_ROOT / 'runs/detect'  # save results to project/name
+    # project=YOLOv5_ROOT / 'runs/detect'  # save results to project/name
     # name='exp'  # save results to project/name
     # exist_ok=False  # existing project/name ok, do not increment
     # line_thickness=3  # bounding box thickness (pixels)
@@ -157,7 +157,7 @@ def detect_car(img0,imgsz,model,device,names):
     return bestcar
 
 ## methods from yolov5_smoke/detect_fun.py
-def detect_init(weights=GAIA_DRONE_ROOT / 'yolov5s.pt'):
+def detect_init(weights=YOLOv5_ROOT / 'yolov5s.pt'):
     
     device = select_device(device='',batch_size=None)   # usually cpu or cuda
     w = str(weights[0] if isinstance(weights, list) else weights) # model weights, from .pt file
