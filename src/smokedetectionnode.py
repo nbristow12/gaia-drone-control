@@ -79,7 +79,7 @@ def init_detection_node():
 
     rospy.spin()
 
-    def detect_car(img0,imgsz,model,device,names):
+def detect_car(img0,imgsz,model,device,names):
     
     # weights=GAIA_DRONE_ROOT / 'yolov5s.pt'  # model.pt path(s)
     # source=GAIA_DRONE_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
