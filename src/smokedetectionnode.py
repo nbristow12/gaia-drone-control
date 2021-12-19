@@ -50,7 +50,7 @@ def imagecallback(img):
     
     #TODO: Run network, set bounding box parameters
     car = detect_car(img_numpy,imgsz,model,device,names)
-    if len(car) != 0:
+    if len(car) != 0 and car[0].confidence > 0.5:
         print(car[0].bounding_box, car[0].confidence)
 
         box.center.x = car[0].bounding_box[0]
@@ -59,9 +59,8 @@ def imagecallback(img):
         box.size_x = car[0].bounding_box[2]
         box.size_y = car[0].bounding_box[3]
         pub.publish(box)
-        print("Bounding box published")
     end = time.time()
-    print("finished callback for image", img.header.seq,"after",end-start, "seconds \n")
+    print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
 
 def init_detection_node():
     global pub,box
