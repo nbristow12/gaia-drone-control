@@ -46,7 +46,7 @@ def dofeedbackcontrol():
     # control loop
     twistmsg = Twist()
     rcmsg = OverrideRCIn()
-    rcmessage.channels = np.zeros(18,dtype=int).tolist()
+    rcmsg.channels = np.zeros(18,dtype=int).tolist()
     rate = rospy.Rate(10) # 10hz
     while not rospy.is_shutdown():
         #feedback control algorithm
@@ -76,7 +76,7 @@ def dofeedbackcontrol():
             else:
                 twistmsg.linear.y = hspeed
                 twistmsg.angular.z = 0
-            rcmessage.channels[7] = pitchcommand
+            rcmsg.channels[7] = pitchcommand
         
             twistpub.publish(twistmsg)
             rcpub.publish(rcmsg)
