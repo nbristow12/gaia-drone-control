@@ -82,11 +82,11 @@ def init_detection_node():
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     
     
-    print('Loading image')
-    img_path = 'traffic.jpeg'
+    # print('Loading image')
+    # img_path = 'traffic.jpeg'
     # img_path = 'smoke_stack.jpeg'
     # img_path = str(YOLOv5_ROOT / 'data/images/zidane.jpg')
-    img = cv2.imread(img_path)
+    # img = cv2.imread(img_path)
 
     # End detection initialization
 
