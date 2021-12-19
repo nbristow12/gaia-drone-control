@@ -55,7 +55,7 @@ def imagecallback(img):
     
     #TODO: Run network, set bounding box parameters
     smoke = detect_smoke(img_numpy,imgsz,model,device,names)
-    if len(smoke) != 0 and smoke[0].confidence > 0.1:
+    if len(smoke) != 0 and smoke[0].confidence > 0.65:
         print(smoke[0].bounding_box, smoke[0].confidence)
 
         box.center.x = smoke[0].bounding_box[0]

@@ -39,6 +39,11 @@ global imgsz, model, device, names
 def imagecallback(img):
     global pub,box
     global imgsz, model, device, names
+
+    if rospy.Time.now() - img.header.stamp > rospy.Duration(.25):
+        print("dropping old image\n")
+        return
+
     box = BoundingBox2D()
     start = time.time()
     
