@@ -41,9 +41,9 @@ def imagecallback(img):
     global imgsz, model, device, names
     box = BoundingBox2D()
     start = time.time()
-    # print("Reading from buffer\n")
+    
     img_numpy = np.frombuffer(img.data,dtype=np.uint8).reshape(img.height,img.width,-1)
-    print("Image read\n\n")
+    
     #image test code
     # cv2.imshow('image window',img_numpy)
     # cv2.waitKey(0)
@@ -51,10 +51,16 @@ def imagecallback(img):
     #TODO: Run network, set bounding box parameters
     car = detect_car(img_numpy,imgsz,model,device,names)
     if len(car) != 0:
-        print(car[0].bounding_box)
+        print(car[0].bounding_box, car[0].confidence)
+
+        box.center.x = car[0].bounding_box[0]
+        box.center.y = car[0].bounding_box[1]
+        box.width = car[0].bounding_box[2]
+        box.height = car[0].bounding_box[3]
+        pub.publish(box)
+        print("Bounding box published")
     end = time.time()
-    print("publishing bounding box for image", img.header.seq,"after",end-start, "seconds \n")
-    pub.publish(box)
+    print("finished callback for image", img.header.seq,"after",end-start, "seconds \n")
 
 def init_detection_node():
     global pub,box
