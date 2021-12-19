@@ -55,8 +55,9 @@ def imagecallback(img):
 
         box.center.x = car[0].bounding_box[0]
         box.center.y = car[0].bounding_box[1]
-        box.width = car[0].bounding_box[2]
-        box.height = car[0].bounding_box[3]
+        box.center.theta = 0
+        box.size_x = car[0].bounding_box[2]
+        box.size_y = car[0].bounding_box[3]
         pub.publish(box)
         print("Bounding box published")
     end = time.time()
