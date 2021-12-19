@@ -9,7 +9,7 @@ import sys
 import numpy as np
 
 global horizontalerror, verticalerror, sizeerror
-global time_lastbox
+time_lastbox = None
 
 setpoint_size = .2 #fraction of frame that should be filled by target. Largest axis (height or width) used.
 deadzone_size = 0.0 #deadzone on controlling size
@@ -51,7 +51,7 @@ def dofeedbackcontrol():
     while not rospy.is_shutdown():
         #feedback control algorithm
         #don't publish if message is old
-        if (rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
+        if time_lastbox !- None and (rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
             #calculate raw commands
             if pitchcommand < 1800:
                 fspeed = sizeerror * size_gain
