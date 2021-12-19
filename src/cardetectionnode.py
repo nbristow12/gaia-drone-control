@@ -49,15 +49,15 @@ def imagecallback(img):
     # cv2.waitKey(0)
     
     #TODO: Run network, set bounding box parameters
-    smoke = detect_smoke(img_numpy,imgsz,model,device,names)
-    if len(smoke) != 0 and smoke[0].confidence > 0.1:
-        print(smoke[0].bounding_box, smoke[0].confidence)
+    car = detect_car(img_numpy,imgsz,model,device,names)
+    if len(car) != 0 and car[0].confidence > 0.5:
+        print(car[0].bounding_box, car[0].confidence)
 
-        box.center.x = smoke[0].bounding_box[0]
-        box.center.y = smoke[0].bounding_box[1]
+        box.center.x = car[0].bounding_box[0]
+        box.center.y = car[0].bounding_box[1]
         box.center.theta = 0
-        box.size_x = smoke[0].bounding_box[2]
-        box.size_y = smoke[0].bounding_box[3]
+        box.size_x = car[0].bounding_box[2]
+        box.size_y = car[0].bounding_box[3]
         pub.publish(box)
     end = time.time()
     print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
@@ -70,18 +70,18 @@ def init_detection_node():
     # Initialize detection code before subscriber because this takes some time
     global imgsz, model, device, names
     print('Initializing model')
-    # weights=YOLOv5_ROOT / 'yolov5s.pt'
-    weights=YOLOv5_ROOT / 'smoke.pt'
+    weights=YOLOv5_ROOT / 'yolov5s.pt'
+    # weights=YOLOv5_ROOT / 'smoke.pt'
     model, device, names = detect_init(weights)
     imgsz = [640,640] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     
     
-    # print('Loading image')
-    # img_path = 'traffic.jpeg'
+    print('Loading image')
+    img_path = 'traffic.jpeg'
     # img_path = 'smoke_stack.jpeg'
     # img_path = str(YOLOv5_ROOT / 'data/images/zidane.jpg')
-    # img = cv2.imread(img_path)
+    img = cv2.imread(img_path)
 
     # End detection initialization
 
@@ -90,7 +90,7 @@ def init_detection_node():
 
     rospy.spin()
 
-def detect_smoke(img0,imgsz,model,device,names):
+def detect_car(img0,imgsz,model,device,names):
     
     # weights=YOLOv5_ROOT / 'yolov5s.pt'  # model.pt path(s)
     # source=YOLOv5_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
@@ -159,14 +159,14 @@ def detect_smoke(img0,imgsz,model,device,names):
                 # adding object to list
                 obj.append(DetectedObject(np.array(xywh),confidence,object_class))
 
-    #------return smoke with max confidence------------#
-    bestsmoke = []
+    #------return car with max confidence------------#
+    bestcar = []
     bestconf = 0
     for ob in obj:
-        if ob.object_class == 'smoke' and ob.confidence > bestconf:
-            bestsmoke = [ob]
+        if ob.object_class == 'car' and ob.confidence > bestconf:
+            bestcar = [ob]
             bestconf = ob.confidence
-    return bestsmoke
+    return bestcar
 
 ## methods from yolov5_smoke/detect_fun.py
 def detect_init(weights=YOLOv5_ROOT / 'yolov5s.pt'):
