@@ -11,23 +11,23 @@ import numpy as np
 global horizontalerror, verticalerror, sizeerror
 global time_lastbox
 
-global setpoint_size = .2 #fraction of frame that should be filled by target. Largest axis (height or width) used.
-global deadzone_size = 0.0 #deadzone on controlling size
-global deadzone_position = 0.0 #deadzone on controlling position in frame
+setpoint_size = .2 #fraction of frame that should be filled by target. Largest axis (height or width) used.
+deadzone_size = 0.0 #deadzone on controlling size
+deadzone_position = 0.0 #deadzone on controlling position in frame
 
-global size_gain = 2
-global yaw_gain = 1
-global pitch_gain = 200
-global yaw_mode = True
-global traverse_gain = 2
+size_gain = 2
+yaw_gain = 1
+pitch_gain = 200
+yaw_mode = True
+traverse_gain = 2
 
-global limit_speed = 2
-global limit_yawrate = .75
-global limit_pitchchange = 200
-global pitchcommand = 1500 # 1000 = 0, 2000 = 44 down
+limit_speed = 2
+limit_yawrate = .75
+limit_pitchchange = 200
+pitchcommand = 1500 # 1000 = 0, 2000 = 44 down
 
 def boundingbox_callback(box):
-    global horizontalerror, verticalerror, sizeerror, setpoint_size
+    global horizontalerror, verticalerror, sizeerror
     global time_lastbox
     #positive errors right, down, forward
     horizontalerror = .5-box.center.x
@@ -37,12 +37,6 @@ def boundingbox_callback(box):
     return
 
 def dofeedbackcontrol():
-    global horizontalerror, verticalerror, sizeerror
-    global time_lastbox
-    global setpoint_size, deadzone_size, deadzone_position
-    global size_gain, yaw_gain, pitch_gain,yaw_mode,traverse_gain
-    global limit_speed, limit_yawrate, limit_pitchchange
-
     #Initialize publishers/subscribers/node
     rospy.Subscriber('/gaia/bounding_box', BoundingBox2D, boundingbox_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
