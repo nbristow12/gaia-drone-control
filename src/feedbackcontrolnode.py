@@ -24,7 +24,6 @@ traverse_gain = 2
 limit_speed = 2
 limit_yawrate = .75
 limit_pitchchange = 200
-pitchcommand = 1500 # 1000 = 0, 2000 = 44 down
 
 def boundingbox_callback(box):
     global horizontalerror, verticalerror, sizeerror
@@ -48,6 +47,7 @@ def dofeedbackcontrol():
     rcmsg = OverrideRCIn()
     rcmsg.channels = np.zeros(18,dtype=int).tolist()
     rate = rospy.Rate(10) # 10hz
+    pitchcommand = 1500 # 1000 = 0, 2000 = 44 down
     while not rospy.is_shutdown():
         #feedback control algorithm
         #don't publish if message is old
