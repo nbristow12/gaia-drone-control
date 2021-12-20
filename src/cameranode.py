@@ -7,6 +7,9 @@ import PySpin
 import sys
 import cv2
 
+save_image = True
+savedir = '/home/jetson/OutputImages/' #script cannot create folder, must already exist when run
+
 #seems to find device automatically if connected? Why don't we do this?
 serialstring = 'DeviceSerialNumber'
 #serialstring = '18285036'
@@ -207,6 +210,21 @@ def publishimages():
                     img.data = image_numpy.flatten().tolist()
                     #send image on topic
                     pub.publish(img)
+
+                    if save_image:
+                        # Create a unique filename
+                        if device_serial_number:
+                            filename = savedir + ('Acquisition-%s-%d.jpg' % (device_serial_number, i))
+                        else:  # if serial number is empty
+                            filename = savedir + ('Acquisition-%d.jpg' % i)
+
+                        #  Save image
+                        #
+                        #  *** NOTES ***
+                        #  The standard practice of the examples is to use device
+                        #  serial numbers to keep images of one device from
+                        #  overwriting those of another.
+                        image_converted.Save(filename)
 
                     #  Release image
                     #
