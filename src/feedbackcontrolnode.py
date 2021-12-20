@@ -51,7 +51,7 @@ def dofeedbackcontrol():
     while not rospy.is_shutdown():
         #feedback control algorithm
         #don't publish if message is old
-        if time_lastbox !- None and (rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
+        if time_lastbox != None and (rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
             #calculate raw commands
             if pitchcommand < 1800:
                 fspeed = sizeerror * size_gain
