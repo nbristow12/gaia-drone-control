@@ -17,26 +17,33 @@ deadzone_position = 0.0 #deadzone on controlling position in frame
 
 size_gain = 2
 yaw_gain = 1
-pitch_gain = 200
+pitch_gain = -100
 yaw_mode = True
 traverse_gain = 2
 
 limit_speed = 2
 limit_yawrate = .75
-limit_pitchchange = 200
+limit_pitchchange = 50
+
+pitchcommand = 1500
 
 def boundingbox_callback(box):
     global horizontalerror, verticalerror, sizeerror
-    global time_lastbox
+    global time_lastbox, pitchcommand
     #positive errors right, down, forward
     horizontalerror = .5-box.center.x
     verticalerror = .5-box.center.y
     sizeerror = setpoint_size - max(box.size_x, box.size_y)
     time_lastbox = rospy.Time.now()
+    pitchdelta = verticalerror * pitch_gain
+    pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
+    pitchcommand += pitchdelta
     return
 
 def dofeedbackcontrol():
+    global pitchcommand
     #Initialize publishers/subscribers/node
+    print("Initializing feedback node...")
     rospy.Subscriber('/gaia/bounding_box', BoundingBox2D, boundingbox_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
     rcpub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=1)
@@ -45,16 +52,18 @@ def dofeedbackcontrol():
     # control loop
     twistmsg = Twist()
     rcmsg = OverrideRCIn()
-    rcmsg.channels = np.zeros(18,dtype=np.uint16).tolist()
+    rcmsg.channels = np.zeros(8,dtype=np.uint16).tolist()
     rate = rospy.Rate(10) # 10hz
-    pitchcommand = 1500 # 1000 = 0, 2000 = 44 down
+
+    print("Feedback node initialized, starting control")
     while not rospy.is_shutdown():
         #feedback control algorithm
         #don't publish if message is old
-        if time_lastbox = None:
-            return
-
+        if time_lastbox == None:
+            continue
+        print("Checking times")
         if (rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
+            print("Time check passed\n")
             #calculate raw commands
             if pitchcommand < 1800:
                 fspeed = sizeerror * size_gain
@@ -64,7 +73,7 @@ def dofeedbackcontrol():
             hspeed = horizontalerror * traverse_gain
             pitchdelta = verticalerror * pitch_gain
             pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
-            pitchcommand += pitchdelta
+            #pitchcommand += pitchdelta
             
             #bound controls to ranges
             fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
@@ -79,10 +88,15 @@ def dofeedbackcontrol():
             else:
                 twistmsg.linear.y = hspeed
                 twistmsg.angular.z = 0
-            rcmsg.channels[7] = np.uint16(pitchcommand)
-        
+            rcmsg.channels[7] = int(pitchcommand)
+            print("Publishing messages")
             twistpub.publish(twistmsg)
-            rcpub.publish(rcmsg)
+        elif (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
+            pitchcommand = 1500
+            rcmsg.channels[7] = int(pitchcommand)
+
+        #always publish gimbal command to avoid jumps
+        rcpub.publish(rcmsg)
         
         rate.sleep()
 
