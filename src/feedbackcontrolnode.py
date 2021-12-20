@@ -71,7 +71,7 @@ def dofeedbackcontrol():
             #assign to messages, publish
             twistmsg.linear.x = fspeed
             if yaw_mode:
-                twismsg.linear.y = 0
+                twistmsg.linear.y = 0
                 twistmsg.angular.z = yawrate
             else:
                 twistmsg.linear.y = hspeed
