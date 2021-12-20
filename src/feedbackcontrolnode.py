@@ -39,7 +39,7 @@ def dofeedbackcontrol():
     #Initialize publishers/subscribers/node
     rospy.Subscriber('/gaia/bounding_box', BoundingBox2D, boundingbox_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
-    rcpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', OverrideRCIn, queue_size=1)
+    rcpub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=1)
     rospy.init_node('feedbacknode', anonymous=False)
 
     # control loop
