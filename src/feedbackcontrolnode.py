@@ -55,14 +55,12 @@ def euler_from_quaternion(x, y, z, w):
         return roll_x, pitch_y, yaw_z # in radians
 
 def yaw_callback(pose):
-    #TODO: Compute and store yaw
     global yaw
     q = pose.pose.orientation
     # yaw = atan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
     r,p,y = euler_from_quaternion(q.x,q.y,q.z,q.w)
     yaw = y
     print(yaw)
-    pass
 
 def boundingbox_callback(box):
     global horizontalerror, verticalerror, sizeerror
@@ -117,12 +115,13 @@ def dofeedbackcontrol():
             pitchcommand = min(max(pitchcommand,1000),2000)
             rcmsg.channels[7] = int(pitchcommand)
             #assign to messages, publish
-            twistmsg.linear.y = fspeed
             if yaw_mode:
-                twistmsg.linear.x = 0
+                twistmsg.linear.x = math.cos(yaw)*fspeed
+                twistmsg.linear.y = math.sin(yaw)*fspeed
                 twistmsg.angular.z = yawrate
             else:
-                twistmsg.linear.x = hspeed
+                twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
+                twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
                 twistmsg.angular.z = 0
             print("Publishing messages")
             twistpub.publish(twistmsg)
