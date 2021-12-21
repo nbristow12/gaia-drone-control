@@ -79,12 +79,12 @@ def dofeedbackcontrol():
             pitchcommand = min(max(pitchcommand,1000),2000)
             rcmsg.channels[7] = int(pitchcommand)
             #assign to messages, publish
-            twistmsg.linear.x = fspeed
+            twistmsg.linear.y = fspeed
             if yaw_mode:
-                twistmsg.linear.y = 0
+                twistmsg.linear.x = 0
                 twistmsg.angular.z = yawrate
             else:
-                twistmsg.linear.y = hspeed
+                twistmsg.linear.x = hspeed
                 twistmsg.angular.z = 0
             print("Publishing messages")
             twistpub.publish(twistmsg)
