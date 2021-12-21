@@ -3,6 +3,7 @@
 import rospy
 from vision_msgs.msg import BoundingBox2D
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped
 from mavros_msgs.msg import OverrideRCIn
 import os
 import sys
@@ -27,6 +28,16 @@ limit_pitchchange = 50
 
 pitchcommand = 1500
 
+yaw = 0
+
+def yaw_callback(pose):
+    #TODO: Compute and store yaw
+    global yaw
+    q = pose.orientation
+    yaw = atan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+    print(yaw)
+    pass
+
 def boundingbox_callback(box):
     global horizontalerror, verticalerror, sizeerror
     global time_lastbox, pitchcommand
@@ -45,6 +56,7 @@ def dofeedbackcontrol():
     #Initialize publishers/subscribers/node
     print("Initializing feedback node...")
     rospy.Subscriber('/gaia/bounding_box', BoundingBox2D, boundingbox_callback)
+    rospy.Subscriber('/mavros/local_position/pose', PoseStamped, yaw_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
     rcpub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=1)
     rospy.init_node('feedbacknode', anonymous=False)
