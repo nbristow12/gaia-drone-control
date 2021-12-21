@@ -77,6 +77,7 @@ def dofeedbackcontrol():
             hspeed = min(max(hspeed,-limit_speed),limit_speed)
             yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
             pitchcommand = min(max(pitchcommand,1000),2000)
+            rcmsg.channels[7] = int(pitchcommand)
             #assign to messages, publish
             twistmsg.linear.x = fspeed
             if yaw_mode:
@@ -87,12 +88,10 @@ def dofeedbackcontrol():
                 twistmsg.angular.z = 0
             print("Publishing messages")
             twistpub.publish(twistmsg)
+            rcpub.publish(rcmsg)
         elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
             pitchcommand = 1500
 
-        #always publish gimbal command to avoid jumps
-        rcmsg.channels[7] = int(pitchcommand)
-        rcpub.publish(rcmsg)
         
         rate.sleep()
 
