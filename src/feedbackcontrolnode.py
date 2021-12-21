@@ -59,10 +59,7 @@ def dofeedbackcontrol():
     while not rospy.is_shutdown():
         #feedback control algorithm
         #don't publish if message is old
-        if time_lastbox == None:
-            continue
-        print("Checking times")
-        if (rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
+        if time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5):
             print("Time check passed\n")
             #calculate raw commands
             if pitchcommand < 1800:
@@ -88,14 +85,13 @@ def dofeedbackcontrol():
             else:
                 twistmsg.linear.y = hspeed
                 twistmsg.angular.z = 0
-            rcmsg.channels[7] = int(pitchcommand)
             print("Publishing messages")
             twistpub.publish(twistmsg)
-        elif (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
+        elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
             pitchcommand = 1500
-            rcmsg.channels[7] = int(pitchcommand)
 
         #always publish gimbal command to avoid jumps
+        rcmsg.channels[7] = int(pitchcommand)
         rcpub.publish(rcmsg)
         
         rate.sleep()
