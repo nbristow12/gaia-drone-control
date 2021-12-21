@@ -5,6 +5,7 @@ from vision_msgs.msg import BoundingBox2D
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PoseStamped
 from mavros_msgs.msg import OverrideRCIn
+from math import atan2
 import os
 import sys
 import numpy as np
@@ -33,7 +34,7 @@ yaw = 0
 def yaw_callback(pose):
     #TODO: Compute and store yaw
     global yaw
-    q = pose.orientation
+    q = pose.pose.orientation
     yaw = atan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
     print(yaw)
     pass
