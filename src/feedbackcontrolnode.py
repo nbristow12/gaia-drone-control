@@ -21,7 +21,7 @@ deadzone_position = 0.0 #deadzone on controlling position in frame
 size_gain = 2
 yaw_gain = 1
 gimbal_pitch_gain = -100
-gimbal_yaw_gain = 100
+gimbal_yaw_gain = 40
 yaw_mode = True
 traverse_gain = 2
 
@@ -77,14 +77,14 @@ def boundingbox_callback(box):
     pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
     pitchcommand += pitchdelta
     pitchcommand = min(max(pitchcommand,1000),2000)
-    yawdelta = verticalerror * gimbal_yaw_gain
+    yawdelta = horizontalerror * gimbal_yaw_gain
     yawdelta = min(max(yawdelta,-limit_yawchange),limit_yawchange)
     yawcommand += yawdelta
     yawcommand = min(max(yawcommand,1000),2000)
     return
 
 def dofeedbackcontrol():
-    global pitchcommand
+    global pitchcommand, yawcommand
     #Initialize publishers/subscribers/node
     print("Initializing feedback node...")
     rospy.Subscriber('/gaia/bounding_box', BoundingBox2D, boundingbox_callback)
