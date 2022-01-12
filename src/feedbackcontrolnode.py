@@ -14,11 +14,11 @@ import numpy as np
 global horizontalerror, verticalerror, sizeerror
 time_lastbox = None
 
-setpoint_size = .2 #fraction of frame that should be filled by target. Largest axis (height or width) used.
+setpoint_size = .5 #fraction of frame that should be filled by target. Largest axis (height or width) used.
 deadzone_size = 0.0 #deadzone on controlling size
 deadzone_position = 0.0 #deadzone on controlling position in frame
 
-size_gain = 2
+size_gain = 8
 yaw_gain = 1
 gimbal_pitch_gain = -100
 gimbal_yaw_gain = 40
