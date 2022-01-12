@@ -18,7 +18,7 @@ setpoint_size = .5 #fraction of frame that should be filled by target. Largest a
 deadzone_size = 0.0 #deadzone on controlling size
 deadzone_position = 0.0 #deadzone on controlling position in frame
 
-size_gain = 8
+size_gain = 6
 yaw_gain = 1
 gimbal_pitch_gain = -100
 gimbal_yaw_gain = 40
@@ -26,7 +26,7 @@ yaw_mode = True
 traverse_gain = 2
 
 limit_speed = 2
-limit_yawrate = .75
+limit_yawrate = .4
 limit_pitchchange = 50
 limit_yawchange = 50
 
