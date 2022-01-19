@@ -112,3 +112,14 @@ Use board type 'sitl' (software in the loop), which is also the default
 ./waf copter
 ```
 From here the build is complete and should be ready to follow the demo tutorials above.
+
+#### Update notes:
+Should finish updating this readme to use the install script instead.
+
+Add a few lines of bash commmands similar to the following:
+Create gaia-ws folder
+clone repo
+install using install script
+go to gaia-ws, catkin init
+catkin build (this sets up ros paths)
+source ~/gaia-ws/devel/setup.bash (optionally add this to bashrc for convenience)
