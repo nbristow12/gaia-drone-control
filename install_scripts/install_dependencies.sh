@@ -54,7 +54,7 @@ sudo pip3 install numpy #add more packages here
 
 cd ~
 #instructions from https://medium.com/nerd-for-tech/face-mask-detection-with-nvidia-jetson-nano-yolov5-b66f286f16d4
-sudo apt-get install libopenblas-base libopenmpi-dev
+sudo apt-get install -y libopenblas-base libopenmpi-dev
 curl -LO https://nvidia.box.com/shared/static/p57jwntv436lfrd78inwl7iml6p13fzh.whl
 mv p57jwntv436lfrd78inwl7iml6p13fzh.whl torch-1.8.0-cp36-cp36m-linux_aarch64.whl
 sudo pip3 install torch-1.8.0-cp36-cp36m-linux_aarch64.whl
@@ -63,13 +63,14 @@ rm torch-1.8.0-cp36-cp36m-linux_aarch64.whl
 #attempt to print to confirm success"
 sudo python3 -c "import torch; print(torch.cuda.is_available())"
 
-sudo apt install libjpeg-dev zlib1g-dev
+sudo apt install -y libjpeg-dev zlib1g-dev
 git clone --branch v0.9.1 https://github.com/pytorch/vision torchvision
 cd torchvision/
 sudo python3 setup.py install
 cd ..
 
 #mattempt to use actual requirements.txt for now
+pip3 install Cython
 pip3 install matplotlib
 pip3 install numpy
 pip3 install opencv-python
