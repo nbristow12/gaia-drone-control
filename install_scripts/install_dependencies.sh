@@ -44,6 +44,8 @@ sudo pip3 install numpy #add more packages here
 
 
 #install dependencies for running yolov5 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# pip3 install -r requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
+
 cd ~
 #instructions from https://medium.com/nerd-for-tech/face-mask-detection-with-nvidia-jetson-nano-yolov5-b66f286f16d4
 sudo apt-get install libopenblas-base libopenmpi-dev
@@ -61,20 +63,20 @@ cd torchvision/
 sudo python3 setup.py install
 cd ..
 
-#may need to add sudo to these? Test.
-pip3 install matplotlib>=3.2.2
-pip3 install numpy>=1.18.5
-pip3 install opencv-python>=4.1.2
-pip3 install Pillow>=7.1.2
-pip3 install PyYAML>=5.3.1
-pip3 install requests>=2.23.0
-pip3 install scipy>=1.4.1
-pip3 install torch>=1.7.0
-pip3 install torchvision>=0.8.1
-pip3 install tqdm>=4.41.0
-pip3 install tensorboard>=2.4.1
-pip3 install pandas>=1.1.4
-pip3 install seaborn>=0.11.0
+#mattempt to use actual requirements.txt for now
+pip3 install matplotlib
+pip3 install numpy
+pip3 install opencv-python
+pip3 install Pillow
+pip3 install PyYAML
+pip3 install requests
+pip3 install scipy
+pip3 install torch
+pip3 install torchvision
+pip3 install tqdm
+pip3 install tensorboard
+pip3 install pandas
+pip3 install seaborn
 pip3 install thop
 
 #end yolov5 dependencies ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
