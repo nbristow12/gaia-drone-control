@@ -11,10 +11,16 @@ curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo ap
 sudo apt update
 sudo apt install -y ros-melodic-ros-base
 
-#conditionally add line to bashrc if it is not already there
+#conditionally add lines to bashrc if it is not already there
 if ! grep -Fxq "source /opt/ros/melodic/setup.bash" ~/.bashrc; 
     then echo "source /opt/ros/melodic/setup.bash" >> ~/.bashrc; 
 fi
+
+if ! grep -Fxq "source ~/gaia-ws/devel/setup.bash" ~/.bashrc; 
+    then echo "source ~/gaia-ws/devel/setup.bash" >> ~/.bashrc; 
+fi
+
+#TODO: Add similar command for the chmod command
 # source ~/.bashrc
 
 sudo apt install -y python-rosdep python-rosinstall python-rosinstall-generator python-wstool build-essential
