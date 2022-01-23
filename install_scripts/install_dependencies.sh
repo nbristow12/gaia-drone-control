@@ -55,7 +55,11 @@ sudo apt-get install -y python3-pip python3-yaml
 sudo pip3 install rospkg catkin_pkg
 
 #install necessary python packages
-sudo pip3 install numpy #add more packages here
+sudo pip3 install Cython
+sudo pip3 install numpy
+
+#appears to be necessary for scipy
+sudo apt-get install -y gfortran libopenblas-dev liblapack-dev
 
 
 
@@ -87,7 +91,7 @@ sudo pip3 install opencv-python
 sudo pip3 install Pillow
 sudo pip3 install PyYAML
 sudo pip3 install requests
-sudo pip3 install scipy
+sudo pip3 install scipy==1.4.1
 sudo pip3 install torch
 sudo pip3 install torchvision
 sudo pip3 install tqdm
