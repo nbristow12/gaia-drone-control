@@ -52,7 +52,7 @@ catkin init
 catkin build
 ```
 
-Restarting your terminal (or calling 'source ~/.bashrc' again) should complete the installation, and the Jetson should be ready to run any of the ROS and yolo_v5 code used for feedback control.
+You MUST restart the device before spinnaker will work, but then the Jetson should be ready to run any of the ROS and yolo_v5 code used for feedback control.
 
 ## Running Car/Smoke Tracking:
 Quick start added some lines to ~/.bashrc to complete the sourcing of the repo and adding write permissions to the appropriate serial port for communicating with the drone via Mavros (drone and wiring configuration covered in Appendix A). This means the code is ready to run upon opening the terminal and can simply be launched with a single command, e.g.:
