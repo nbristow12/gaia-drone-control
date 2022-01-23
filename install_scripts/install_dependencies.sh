@@ -82,6 +82,8 @@ cd torchvision/
 sudo python3 setup.py install
 cd ..
 
+sudo apt-get install -y libfreetype6-dev #must be installed before pillow or causes "the imaging_ft c module is not installed" error for yolo. If not remove ALL instances of pillow and reinstall with 'sudo pip3 install --no-cache-dir pillow'
+
 pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
 
 #attempt to use actual requirements.txt for now
