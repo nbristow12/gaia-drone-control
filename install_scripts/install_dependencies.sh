@@ -12,15 +12,23 @@ sudo apt update
 sudo apt install -y ros-melodic-ros-base
 
 #conditionally add lines to bashrc if it is not already there
+#this is a standard source command for ros, you definitely want this one
 if ! grep -Fxq "source /opt/ros/melodic/setup.bash" ~/.bashrc; 
     then echo "source /opt/ros/melodic/setup.bash" >> ~/.bashrc; 
 fi
 
+#this is a convenience source for the gaia-ws, if you are working with other workspaces as well you may want to drop this
 if ! grep -Fxq "source ~/gaia-ws/devel/setup.bash" ~/.bashrc; 
     then echo "source ~/gaia-ws/devel/setup.bash" >> ~/.bashrc; 
 fi
 
-#TODO: Add similar command for the chmod command
+#This is a convenience call to change permission on /dev/ttyTHS1 so this command does not have to be run before launching Mavros (or our code that uses Mavros). As a consequence you will have to enter the root password whenever you open the terminal, so you may want to delete it if not using the repo frequently.
+if ! grep -Fxq "sudo chmod 666 /dev/ttyTHS1" ~/.bashrc; 
+    then echo "sudo chmod 666 /dev/ttyTHS1" >> ~/.bashrc; 
+fi
+
+sudo ifconfig enp15s0 mtu 9000
+
 # source ~/.bashrc
 
 sudo apt install -y python-rosdep python-rosinstall python-rosinstall-generator python-wstool build-essential
@@ -39,6 +47,8 @@ sudo apt-get install -y ros-melodic-vision-msgs ros-melodic-vision-opencv ros-me
 
 #install mavros
 sudo apt install -y ros-melodic-mavros ros-melodic-mavros-extras
+sudo /opt/ros/melodic/lib/mavros/install_geographiclib_datasets.sh
+
 
 #install some fixes for using ros melodic with Python3
 sudo apt-get install -y python3-pip python3-yaml
@@ -70,23 +80,25 @@ sudo python3 setup.py install
 cd ..
 
 #mattempt to use actual requirements.txt for now
-pip3 install Cython
-pip3 install matplotlib
-pip3 install numpy
-pip3 install opencv-python
-pip3 install Pillow
-pip3 install PyYAML
-pip3 install requests
-pip3 install scipy
-pip3 install torch
-pip3 install torchvision
-pip3 install tqdm
-pip3 install tensorboard
-pip3 install pandas
-pip3 install seaborn
-pip3 install thop
+sudo pip3 install Cython
+sudo pip3 install matplotlib
+sudo pip3 install numpy
+sudo pip3 install opencv-python
+sudo pip3 install Pillow
+sudo pip3 install PyYAML
+sudo pip3 install requests
+sudo pip3 install scipy
+sudo pip3 install torch
+sudo pip3 install torchvision
+sudo pip3 install tqdm
+sudo pip3 install tensorboard
+sudo pip3 install pandas
+sudo pip3 install seaborn
+sudo pip3 install thop
 
 #end yolov5 dependencies ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-#TODO:
-#Add .bashrc convenience scripts like sudo chmod 666 /dev/ttyTHS0 (will require a root password whenever opening terminal) and 'source !/gaia-ws/devel/setup.bash'
+#Convenience installs to prepare for installing spinnaker:
+sudo apt-get install -y libusb-1.0-0
+
+
