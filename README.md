@@ -4,7 +4,7 @@ gaia-drone-control includes control and simulation methods developed for control
 
 ## Quick Start
 
-Clone repo:
+### Clone repo:
 ```bash
 cd ~
 mkdir gaia-ws
@@ -14,21 +14,36 @@ cd src
 git clone https://github.umn.edu/HongFlowFieldImagingLab/GAIA-drone-control.git
 ```
 
-Run install script: (This will take quite some time on the Jetson)
+### Run install script: (This will take quite some time on the Jetson)
+
 ```bash
 cd ~/gaia-ws/src/GAIA-drone-control/install_scripts
 ./install_dependencies.sh
 ```
 The install script is configured to install ROS and the dependencies needed to run yolov5. It does not currently install Spinnaker or PySpin, this must be done manually to complete the setup and be able to run things.
 
-Manually install spinnaker node, spinnaker python:
+### Manually install spinnaker node, spinnaker python:
 Either download directly from spinnaker website, or from our Google Drive:
+
 https://drive.google.com/drive/folders/1MrDqN7BMAj4Jl0IVvFGdhrfC5YlxuMcb?usp=sharing (NSF-MRI-GAIA/Subproject 1.4 - Drone Feedback Control/Resources/Setup Resources)
+
 spinnaker_python-2.5.0.80-cp36-cp36m-linux_aarch64.tar.gz and spinnaker_python-2.5.0.80-cp36-cp36m-linux_aarch64.tar.gz
+
 Direct download: https://flir.app.boxcn.net/v/SpinnakerSDK/folder/74729115388
 
 Install standard spinnaker SDK first, then spinnaker-python following the readme's from each zip folder.
 
+In general, to install spinnaker_python-2.5.0.80-cp36-cp36m-linux_aarch64 unzip and call:
+```bash
+sudo sh install_spinnaker_arm.sh
+```
+Accept the agreement and answer yes to all the prompts (except probably making system examples available in path, flir GenTL Producer, and the feedback program). Enter the jetson username (usually jetson) when prompted for a username, then enter to skip when prompted for another.
+
+To install spinnaker_python-2.5.0.80-cp36-cp36m-linux_aarch64 unzip and run:
+```bash
+sudo pip3 install spinnaker_python-2.5.0.80-cp36-cp36m-linux_aarch64.whl
+```
+### Finalize installation:
 To finalize the installation, initialize and build the catkin project to make finding ROS packages easy:
 ```bash
 source ~/.bashrc
