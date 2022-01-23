@@ -96,7 +96,7 @@ def dofeedbackcontrol():
     # control loop
     twistmsg = Twist()
     rcmsg = OverrideRCIn()
-    rcmsg.channels = np.zeros(8,dtype=np.uint16).tolist()
+    rcmsg.channels = np.zeros(18,dtype=np.uint16).tolist()
     rate = rospy.Rate(10) # 10hz
 
     print("Feedback node initialized, starting control")
