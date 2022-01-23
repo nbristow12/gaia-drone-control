@@ -64,7 +64,6 @@ sudo apt-get install -y gfortran libopenblas-dev liblapack-dev
 
 
 #install dependencies for running yolov5 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# pip3 install -r requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
 
 cd ~
 #instructions from https://medium.com/nerd-for-tech/face-mask-detection-with-nvidia-jetson-nano-yolov5-b66f286f16d4
@@ -83,22 +82,23 @@ cd torchvision/
 sudo python3 setup.py install
 cd ..
 
-#mattempt to use actual requirements.txt for now
-sudo pip3 install Cython
-sudo pip3 install matplotlib
-sudo pip3 install numpy
-sudo pip3 install opencv-python
-sudo pip3 install Pillow
-sudo pip3 install PyYAML
-sudo pip3 install requests
-sudo pip3 install scipy==1.4.1
-sudo pip3 install torch
-sudo pip3 install torchvision
-sudo pip3 install tqdm
-sudo pip3 install tensorboard
-sudo pip3 install pandas
-sudo pip3 install seaborn
-sudo pip3 install thop
+pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
+
+#attempt to use actual requirements.txt for now
+# sudo pip3 install matplotlib
+# sudo pip3 install numpy
+# sudo pip3 install opencv-python
+# sudo pip3 install Pillow
+# sudo pip3 install PyYAML
+# sudo pip3 install requests
+# sudo pip3 install scipy==1.4.1
+# sudo pip3 install torch
+# sudo pip3 install torchvision
+# sudo pip3 install tqdm
+# sudo pip3 install tensorboard
+# sudo pip3 install pandas
+# sudo pip3 install seaborn
+# sudo pip3 install thop
 
 #end yolov5 dependencies ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
