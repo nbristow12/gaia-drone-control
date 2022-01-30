@@ -56,7 +56,7 @@ sudo pip3 install rospkg catkin_pkg
 
 #install necessary python packages
 sudo pip3 install Cython
-sudo pip3 install numpy
+sudo pip3 install numpy==1.19.4 #1.19.5 causes issue with matplotlib install
 
 #appears to be necessary for scipy
 sudo apt-get install -y gfortran libopenblas-dev liblapack-dev
@@ -82,23 +82,29 @@ cd torchvision/
 sudo python3 setup.py install
 cd ..
 
-pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
+#create the default directory for saved images (python code currently will not create it itself which causes error)
+mkdir ~/OutputImages
+
+#upgrade pip, required for installing matplotlib and possibly some others
+sudo pip3 install --upgrade pip
+
+# sudo pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
 
 #attempt to use actual requirements.txt for now
-# sudo pip3 install matplotlib
+sudo pip3 install matplotlib
 # sudo pip3 install numpy
-# sudo pip3 install opencv-python
-# sudo pip3 install Pillow
-# sudo pip3 install PyYAML
-# sudo pip3 install requests
-# sudo pip3 install scipy==1.4.1
-# sudo pip3 install torch
-# sudo pip3 install torchvision
-# sudo pip3 install tqdm
-# sudo pip3 install tensorboard
-# sudo pip3 install pandas
-# sudo pip3 install seaborn
-# sudo pip3 install thop
+sudo pip3 install opencv-python
+sudo pip3 install Pillow
+sudo pip3 install PyYAML
+sudo pip3 install requests
+sudo pip3 install scipy==1.4.1 #had an issue with not automatically upgrading, need >=1.4.1 for yolo
+sudo pip3 install torch
+sudo pip3 install torchvision
+sudo pip3 install tqdm
+sudo pip3 install tensorboard
+sudo pip3 install pandas
+sudo pip3 install seaborn
+sudo pip3 install thop
 
 #end yolov5 dependencies ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
