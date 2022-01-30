@@ -14,7 +14,7 @@ cd src
 git clone https://github.umn.edu/HongFlowFieldImagingLab/GAIA-drone-control.git
 ```
 
-### Run install script: (This will take quite some time on the Jetson)
+### Run install script: (This will take quite some time on the Jetson and you will likely be prompted to re-enter the root password a few times)
 
 ```bash
 cd ~/gaia-ws/src/GAIA-drone-control/install_scripts
