@@ -1,10 +1,11 @@
 #Install dependencies for GAIA-drone-control
 #should be run as './install_dependencies.sh', without sudo. 
 #You may need to enter the root password multiple times during the execution depending on execution speed (e.g, on Jetsons)
+sudo apt update
+sudo apt-get update
 
 #### Install ros_melodic ==========================================================
 # instructions from http://wiki.ros.org/melodic/Installation/Ubuntu
-
 sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
 sudo apt install -y curl # if you haven't already installed curl
 curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
@@ -92,7 +93,7 @@ sudo apt-get install -y libfreetype6-dev #must be installed before pillow or cau
 
 # sudo pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
 #attempt to use actual requirements.txt for now
-sudo pip3 install matplotlib
+sudo pip3 install matplotlib==3.2.2
 # sudo pip3 install numpy
 sudo pip3 install opencv-python
 sudo pip3 install Pillow
