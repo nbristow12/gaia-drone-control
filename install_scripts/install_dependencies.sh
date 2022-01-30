@@ -88,8 +88,9 @@ mkdir ~/OutputImages
 #upgrade pip, required for installing matplotlib and possibly some others
 sudo pip3 install --upgrade pip
 
-# sudo pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
+sudo apt-get install -y libfreetype6-dev #must be installed before pillow or causes "the imaging_ft c module is not installed" error for yolo. If not remove ALL instances of pillow and reinstall with 'sudo pip3 install --no-cache-dir pillow'
 
+# sudo pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
 #attempt to use actual requirements.txt for now
 sudo pip3 install matplotlib
 # sudo pip3 install numpy
