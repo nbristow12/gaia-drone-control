@@ -78,7 +78,7 @@ def init_detection_node():
     # weights=YOLOv5_ROOT / 'yolov5s.pt'
     weights=YOLOv5_ROOT / 'smoke.pt'
     model, device, names = detect_init(weights)
-    imgsz = [640,640] # scaled image size to run inference on
+    imgsz = [256,256] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     
     
