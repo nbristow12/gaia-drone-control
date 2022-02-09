@@ -44,7 +44,7 @@ VOC/
 
 # Neural Network weights -----------------------------------------------------------------------------------------------
 *.weights
-*.pt
+#*.pt #stop ignoring .pt files, want to find critical weights files
 *.pb
 *.onnx
 *.mlmodel
