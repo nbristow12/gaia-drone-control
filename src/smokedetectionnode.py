@@ -26,7 +26,7 @@ from models.experimental import attempt_load
 from utils.datasets import LoadImages, LoadStreams
 from utils.general import check_img_size, non_max_suppression, scale_coords, xyxy2xywh
 from utils.torch_utils import select_device
-
+from utils.plots import Annotator, colors
 from utils.augmentations import letterbox
 
 import time
@@ -35,6 +35,11 @@ import time
 global pub,box
 #global initialized variables for detection model
 global imgsz, model, device, names
+
+
+#--------OPTION TO VIEW DETECTION RESULTS IN REAL_TIME-------------#
+VIEW_IMG=True
+#-----------------------------------------------------#
 
 def imagecallback(img):
     global pub,box
@@ -127,7 +132,7 @@ def detect_smoke(img0,imgsz,model,device,names):
     # Padded resize
     img = letterbox(img0, stride=stride, auto=True)[0]
     # Convert
-    # img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+    img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
     img = np.array((img,img,img))
     img = np.ascontiguousarray(img)
     # imgsz = img.shape
@@ -150,6 +155,9 @@ def detect_smoke(img0,imgsz,model,device,names):
         # im0 = img0.copy()
         # p, s, im0, frame = path, '', im0s.copy(), getattr(dataset, 'frame', 0)
         gn = torch.tensor(img0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+        
+        annotator = Annotator(img0, line_width=1, example=str(names))
+        
         if len(det):
             # Rescale boxes from img_size to im0 size
             det[:, :4] = scale_coords(img.shape[2:], det[:, :4], img0.shape).round()
@@ -160,9 +168,20 @@ def detect_smoke(img0,imgsz,model,device,names):
                 xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                 confidence = float(conf)
                 object_class = names[int(cls)]
-                
+                # if save_img or save_crop or view_img:  # Add bbox to image
+                if VIEW_IMG:
+                    c = int(cls)  # integer class
+                    label = f'{names[c]} {conf:.2f}'
+                    annotator.box_label(xyxy, label, color=colors(c, True))
                 # adding object to list
                 obj.append(DetectedObject(np.array(xywh),confidence,object_class))
+
+        
+        if VIEW_IMG:
+            im_with_boxes = annotator.result()
+            cv2.imshow('detection results', im_with_boxes)
+            cv2.waitKey(1)  # 1 millisecond
+
 
     #------return smoke with max confidence------------#
     bestsmoke = []

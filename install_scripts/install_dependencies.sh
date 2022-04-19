@@ -24,8 +24,8 @@ if ! grep -Fxq "source ~/gaia-ws/devel/setup.bash" ~/.bashrc;
 fi
 
 #This is a convenience call to change permission on /dev/ttyTHS1 so this command does not have to be run before launching Mavros (or our code that uses Mavros). As a consequence you will have to enter the root password whenever you open the terminal, so you may want to delete it if not using the repo frequently.
-if ! grep -Fxq "sudo chmod 666 /dev/ttyTHS1" ~/.bashrc; 
-    then echo "sudo chmod 666 /dev/ttyTHS1" >> ~/.bashrc; 
+if ! grep -Fxq "sudo chmod 666 /dev/ttyTHS0" ~/.bashrc; 
+    then echo "sudo chmod 666 /dev/ttyTHS0" >> ~/.bashrc; 
 fi
 
 sudo ifconfig enp15s0 mtu 9000
@@ -62,7 +62,9 @@ sudo pip3 install numpy==1.19.4 #1.19.5 causes issue with matplotlib install
 #appears to be necessary for scipy
 sudo apt-get install -y gfortran libopenblas-dev liblapack-dev
 
-
+# install dependecies for GoPro camera using goprocam API
+sudo pip3 install goprocam
+sudo apt install ffmpeg
 
 #install dependencies for running yolov5 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
