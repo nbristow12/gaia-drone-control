@@ -37,14 +37,14 @@ def publishimages():
     """
 
     # initalize gopro
-    p = subprocess.Popen([sys.executable,
-                    "/home/%s/gaia-ws/src/GAIA-drone-control/src/goproapi/gopro_keepalive.py" % username],
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.STDOUT)
+    # p = subprocess.Popen([sys.executable,
+    #                 "/home/%s/gaia-ws/src/GAIA-drone-control/src/goproapi/gopro_keepalive.py" % username],
+    #                 stdout=subprocess.PIPE, 
+    #                 stderr=subprocess.STDOUT)
 
 
-    print('waiting 3 seconds to initialize camera')
-    time.sleep(3)
+    # print('waiting 3 seconds to initialize camera')
+    # time.sleep(3)
     
     gpCam = GoProCamera.GoPro()
     #gpCam.gpControlSet(constants.Stream.BIT_RATE, constants.Stream.BitRate.B2_4Mbps)
