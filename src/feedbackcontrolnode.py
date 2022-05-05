@@ -14,10 +14,13 @@ import numpy as np
 global horizontalerror, verticalerror, sizeerror
 time_lastbox = None
 
-setpoint_size = .5 #fraction of frame that should be filled by target. Largest axis (height or width) used.
+top_down_mode = True  # different operating mode for motion if the drone is far above the feature
+
+setpoint_size = .25 #fraction of frame that should be filled by target. Largest axis (height or width) used.
 deadzone_size = 0.0 #deadzone on controlling size
 deadzone_position = 0.0 #deadzone on controlling position in frame
 
+vertical_gain = 3 # half of the size_gain value
 size_gain = 6
 yaw_gain = 1
 gimbal_pitch_gain = -100
@@ -26,6 +29,7 @@ yaw_mode = True
 traverse_gain = 2
 
 limit_speed = 2
+limit_speed_v = 0.5 # different speed limit for changing altitude
 limit_yawrate = .4
 limit_pitchchange = 50
 limit_yawchange = 50
@@ -105,35 +109,85 @@ def dofeedbackcontrol():
         #don't publish if message is old
         if time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5):
             print("Time check passed\n")
-            #calculate raw commands
-            if pitchcommand < 1800:
-                fspeed = sizeerror * size_gain
+
+            if pitchcommand > 1750:
+                top_down_mode= True
             else:
-                fspeed = 0
-            # yawrate = horizontalerror * yaw_gain #commented out when gimbal yaw is active
-            yawrate = ((yawcommand - 1500)/1000)*yaw_gain*.75 #.75 multiplier included here for now, should be pulled out to gain later
-            hspeed = horizontalerror * traverse_gain
-            # pitchdelta = verticalerror * gimbal_pitch_gain
-            # pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
-            #pitchcommand += pitchdelta
+                top_down_mode = False
+
             
-            #bound controls to ranges
-            fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
-            hspeed = min(max(hspeed,-limit_speed),limit_speed)
-            yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
-            pitchcommand = min(max(pitchcommand,1000),2000)
-            yawcommand = min(max(yawcommand,1000),2000)
-            rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
-            rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
-            #assign to messages, publish
-            if yaw_mode:
-                twistmsg.linear.x = math.cos(yaw)*fspeed
-                twistmsg.linear.y = math.sin(yaw)*fspeed
-                twistmsg.angular.z = yawrate
+            if top_down_mode:
+
+                #calculate raw commands
+                # if pitchcommand < 1800: 
+                #     fspeed = sizeerror * size_gain
+                # else: # if the gimbal is pitching down to see (i.e., pitch servo > 1800), stop going forward
+                #     fspeed = 0
+                # yawrate = horizontalerror * yaw_gain #commented out when gimbal yaw is active
+                yawrate = 0
+                # yawrate = ((yawcommand - 1500)/1000)*yaw_gain*.75 #.75 multiplier included here for now, should be pulled out to gain later
+                hspeed = horizontalerror * traverse_gain
+                fspeed = verticalerror * traverse_gain
+                vspeed = -sizeerror * vertical_gain # size error is negative because you want to move down (negative velocity) to get closer
+                # pitchdelta = verticalerror * gimbal_pitch_gain
+                # pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
+                #pitchcommand += pitchdelta
+                
+                #bound controls to ranges
+                fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
+                hspeed = min(max(hspeed,-limit_speed),limit_speed)
+                vspeed = min(max(vspeed,-limit_speed_v),limit_speed_v) # vertical speed
+
+                yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
+                pitchcommand = min(max(pitchcommand,1000),2000)
+                yawcommand = min(max(yawcommand,1000),2000)
+                rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
+                rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
+                #assign to messages, publish
+                if yaw_mode:
+                    twistmsg.linear.x = math.cos(yaw)*fspeed
+                    twistmsg.linear.y = math.sin(yaw)*fspeed
+                    twistmsg.linear.z = vspeed  # adding vertical motion
+                    twistmsg.angular.z = yawrate
+                else:
+                    twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
+                    twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
+                    twistmsg.angular.z = 0
+
             else:
-                twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
-                twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
-                twistmsg.angular.z = 0
+                # set vertical motion to zero
+                vspeed = 0
+                twistmsg.linear.z = vspeed
+                #calculate raw commands
+                if pitchcommand < 1800: 
+                    fspeed = sizeerror * size_gain
+                else: # if the gimbal is pitching down to see (i.e., pitch servo > 1800), stop going forward
+                    fspeed = 0
+                # yawrate = horizontalerror * yaw_gain #commented out when gimbal yaw is active
+                yawrate = ((yawcommand - 1500)/1000)*yaw_gain*.75 #.75 multiplier included here for now, should be pulled out to gain later
+                hspeed = horizontalerror * traverse_gain
+                # pitchdelta = verticalerror * gimbal_pitch_gain
+                # pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
+                #pitchcommand += pitchdelta
+                
+                #bound controls to ranges
+                fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
+                hspeed = min(max(hspeed,-limit_speed),limit_speed)
+                yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
+                pitchcommand = min(max(pitchcommand,1000),2000)
+                yawcommand = min(max(yawcommand,1000),2000)
+                rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
+                rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
+                #assign to messages, publish
+                if yaw_mode:
+                    twistmsg.linear.x = math.cos(yaw)*fspeed
+                    twistmsg.linear.y = math.sin(yaw)*fspeed
+                    twistmsg.angular.z = yawrate
+                else:
+                    twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
+                    twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
+                    twistmsg.angular.z = 0
+
             print("Publishing messages")
             twistpub.publish(twistmsg)
             rcpub.publish(rcmsg)
