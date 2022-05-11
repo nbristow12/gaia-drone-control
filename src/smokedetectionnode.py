@@ -4,7 +4,7 @@ from re import sub
 import rospy
 from rospy.client import init_node
 from sensor_msgs.msg import Image
-from vision_msgs.msg import BoundingBox2D
+from vision_msgs.msg import Detection2D
 import numpy as np
 import cv2
 import os
@@ -44,7 +44,7 @@ VIEW_IMG=True
 def imagecallback(img):
     global pub,box
     global imgsz, model, device, names
-    box = BoundingBox2D()
+    box = Detection2D()
     
     if rospy.Time.now() - img.header.stamp > rospy.Duration(.25):
         print("dropping old image\n")
@@ -60,30 +60,43 @@ def imagecallback(img):
     
     #TODO: Run network, set bounding box parameters
     smoke = detect_smoke(img_numpy,imgsz,model,device,names)
-    if len(smoke) != 0 and smoke[0].confidence > 0.65:
+    box.header = img.header
+    box.source_img = img
+    if len(smoke) != 0 and smoke[0].confidence > 0.4:
         print(smoke[0].bounding_box, smoke[0].confidence)
-
-        box.center.x = smoke[0].bounding_box[0]
-        box.center.y = smoke[0].bounding_box[1]
-        box.center.theta = 0
-        box.size_x = smoke[0].bounding_box[2]
-        box.size_y = smoke[0].bounding_box[3]
-        pub.publish(box)
+        box.bbox.center.x = smoke[0].bounding_box[0]
+        box.bbox.center.y = smoke[0].bounding_box[1]
+        box.bbox.center.theta = 0
+        box.bbox.size_x = smoke[0].bounding_box[2]
+        box.bbox.size_y = smoke[0].bounding_box[3]
+    else:
+        box.bbox.center.x = None
+        box.bbox.center.y = None
+        box.bbox.center.theta = None
+        box.bbox.size_x = None
+        box.bbox.size_y = None
+    pub.publish(box)
     end = time.time()
     print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
 
 def init_detection_node():
     global pub,box
-    pub = rospy.Publisher('/gaia/bounding_box', BoundingBox2D, queue_size=1)
-    box = BoundingBox2D()
+    pub = rospy.Publisher('/gaia/bounding_box', Detection2D, queue_size=1)
+    box = Detection2D()
 
     # Initialize detection code before subscriber because this takes some time
     global imgsz, model, device, names
     print('Initializing model')
     # weights=YOLOv5_ROOT / 'yolov5s.pt'
-    weights=YOLOv5_ROOT / 'smoke.pt'
+    # weights=YOLOv5_ROOT / 'yolov5s.pt'
+    #weights=YOLOv5_ROOT / 'smoke.pt'
+    # weights=YOLOv5_ROOT / 'realsmoke_3aug_betterBalance.pt'
+    # weights=YOLOv5_ROOT / 'best_2022-04-26.pt'
+    # weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withSmokeStack_invertAll_50epochs.pt'
+    # weights=YOLOv5_ROOT / 'smoke400_100empty_H-M-L_color_withUMore.pt'
+    weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
     model, device, names = detect_init(weights)
-    imgsz = [256,256] # scaled image size to run inference on
+    imgsz = [416,416] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     
     
