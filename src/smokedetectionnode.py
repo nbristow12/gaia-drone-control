@@ -9,7 +9,16 @@ import numpy as np
 import cv2
 import os
 import PySpin
-import sys
+import sys, datetime
+
+username = os.getlogin( )
+tmp = datetime.datetime.now()
+stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day, 
+    tmp.hour, tmp.minute, tmp.second))
+savedir = '/home/%s/OutputImages_%s_detection/' % (username,stamp) #script cannot create folder, must already exist when run
+os.makedirs(savedir)
+
 
 import argparse
 from pathlib import Path
@@ -39,15 +48,19 @@ global imgsz, model, device, names
 
 #--------OPTION TO VIEW DETECTION RESULTS IN REAL_TIME-------------#
 VIEW_IMG=True
+SAVE_IMG = True
 #-----------------------------------------------------#
 
 def imagecallback(img):
     global pub,box
     global imgsz, model, device, names
     box = Detection2D()
-    
-    if rospy.Time.now() - img.header.stamp > rospy.Duration(.25):
-        print("dropping old image\n")
+    # print(img.header.stamp)
+    # print('Time before running detection')
+    # print('Image %d' % img.header.seq)
+    # print(img.header.stamp)
+    if rospy.Time.now() - img.header.stamp > rospy.Duration(.5):
+        # print("DetectionNode: dropping old image from detection\n")
         return
 
     start = time.time()
@@ -59,25 +72,39 @@ def imagecallback(img):
     # cv2.waitKey(0)
     
     #TODO: Run network, set bounding box parameters
-    smoke = detect_smoke(img_numpy,imgsz,model,device,names)
-    box.header = img.header
+    smoke = detect_smoke(img_numpy,imgsz,model,device,names,savenum=img.header.seq)
+    # cv2.imshow('frame',im_with_boxes)
+    # cv2.waitKey(1)
+    
+    
+    # print(img.header)
+    # print('Printing time stamps at exchange in detection')
+    # print(img.header.stamp)
+    box.header.seq = img.header.seq
+    box.header.stamp = img.header.stamp
+    box.header.frame_id = ''
+    # print(box.header.stamp)
     box.source_img = img
     if len(smoke) != 0 and smoke[0].confidence > 0.4:
-        print(smoke[0].bounding_box, smoke[0].confidence)
+        # print(smoke[0].bounding_box, smoke[0].confidence)
         box.bbox.center.x = smoke[0].bounding_box[0]
         box.bbox.center.y = smoke[0].bounding_box[1]
         box.bbox.center.theta = 0
         box.bbox.size_x = smoke[0].bounding_box[2]
         box.bbox.size_y = smoke[0].bounding_box[3]
     else:
-        box.bbox.center.x = None
-        box.bbox.center.y = None
-        box.bbox.center.theta = None
-        box.bbox.size_x = None
-        box.bbox.size_y = None
+        box.bbox.center.x = -1
+        box.bbox.center.y = -1
+        box.bbox.center.theta = -1
+        box.bbox.size_x = -1
+        box.bbox.size_y = -1
     pub.publish(box)
+    # print('Time after running detection')
+    # print('Image %d' % box.source_img.header.seq)
+    # print(box.source_img.header.stamp)
+    
     end = time.time()
-    print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
+    # print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
 
 def init_detection_node():
     global pub,box
@@ -96,24 +123,19 @@ def init_detection_node():
     # weights=YOLOv5_ROOT / 'smoke400_100empty_H-M-L_color_withUMore.pt'
     weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
     model, device, names = detect_init(weights)
-    imgsz = [416,416] # scaled image size to run inference on
+    imgsz = [448,448] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     
     
-    # print('Loading image')
-    # img_path = 'traffic.jpeg'
-    # img_path = 'smoke_stack.jpeg'
-    # img_path = str(YOLOv5_ROOT / 'data/images/zidane.jpg')
-    # img = cv2.imread(img_path)
 
     # End detection initialization
-
-    rospy.Subscriber('/camera/image', Image, imagecallback)
     rospy.init_node('detectionnode', anonymous=False)
+    rospy.Subscriber('/camera/image', Image, imagecallback)
+    
 
     rospy.spin()
 
-def detect_smoke(img0,imgsz,model,device,names):
+def detect_smoke(img0,imgsz,model,device,names,savenum):
     
     # weights=YOLOv5_ROOT / 'yolov5s.pt'  # model.pt path(s)
     # source=YOLOv5_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
@@ -189,11 +211,13 @@ def detect_smoke(img0,imgsz,model,device,names):
                 # adding object to list
                 obj.append(DetectedObject(np.array(xywh),confidence,object_class))
 
+        im_with_boxes = annotator.result()
         
-        if VIEW_IMG:
-            im_with_boxes = annotator.result()
-            cv2.imshow('detection results', im_with_boxes)
-            cv2.waitKey(1)  # 1 millisecond
+        
+        # if VIEW_IMG:
+        #     # im_with_boxes = annotator.result()
+        #     cv2.imshow('gopro', im_with_boxes)
+        #     cv2.waitKey(1)  # 1 millisecond
 
 
     #------return smoke with max confidence------------#
@@ -202,7 +226,13 @@ def detect_smoke(img0,imgsz,model,device,names):
     for ob in obj:
         if ob.object_class == 'smoke' and ob.confidence > bestconf:
             bestsmoke = [ob]
-            bestconf = ob.confidence
+            bestconf = ob.confidence  
+    if SAVE_IMG:
+        cv2.imwrite(savedir+'Detection-%06.0f.jpg' % savenum,im_with_boxes)
+    if VIEW_IMG:
+        # im_with_boxes = annotator.result()
+        cv2.imshow('gopro', im_with_boxes)
+        cv2.waitKey(1)  # 1 millisecond
     return bestsmoke
 
 ## methods from yolov5_smoke/detect_fun.py

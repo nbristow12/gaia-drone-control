@@ -69,31 +69,33 @@ def yaw_callback(pose):
     # yaw = atan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
     r,p,y = euler_from_quaternion(q.x,q.y,q.z,q.w)
     yaw = y
-    print(pose.pose.position.z) # printing altitude
+    # print(pose.pose.position.z,end='\r') # printing altitude
     # print(yaw)
 
 def boundingbox_callback(box):
     global horizontalerror, verticalerror, sizeerror
     global time_lastbox, pitchcommand, yawcommand
     #positive errors left, up, forward
-    horizontalerror = .5-box.bbox.center.x
-    verticalerror = .5-box.bbox.center.y
-    sizeerror = setpoint_size - max(box.bbox.size_x, box.bbox.size_y)
-    time_lastbox = rospy.Time.now()
-    pitchdelta = verticalerror * gimbal_pitch_gain
-    pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
-    pitchcommand += pitchdelta
-    pitchcommand = min(max(pitchcommand,1000),2000)
-    yawdelta = horizontalerror * gimbal_yaw_gain
-    yawdelta = min(max(yawdelta,-limit_yawchange),limit_yawchange)
-    # yawcommand += yawdelta
-    # yawcommand = min(max(yawcommand,1000),2000)
-    yawcommand = 1500
+    if box.bbox.center.x != -1:
+        horizontalerror = .5-box.bbox.center.x
+        verticalerror = .5-box.bbox.center.y
+        sizeerror = setpoint_size - max(box.bbox.size_x, box.bbox.size_y)
+        time_lastbox = rospy.Time.now()
+        pitchdelta = verticalerror * gimbal_pitch_gain
+        pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
+        pitchcommand += pitchdelta
+        pitchcommand = min(max(pitchcommand,1000),2000)
+        yawdelta = horizontalerror * gimbal_yaw_gain
+        yawdelta = min(max(yawdelta,-limit_yawchange),limit_yawchange)
+        # yawcommand += yawdelta
+        # yawcommand = min(max(yawcommand,1000),2000)
+        yawcommand = 1500
     return
 
 def flow_callback(flow):
-
+    global horizontalerror, verticalerror
     # adjust the feedback error using the optical flow
+    print('doing optical flow feedback')
     horizontalerror += flow.size_x * flow_gain
     verticalerror += flow.size_y * flow_gain
 
@@ -121,7 +123,7 @@ def dofeedbackcontrol():
         #feedback control algorithm
         #don't publish if message is old
         if time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5):
-            print("Time check passed\n")
+            # print("Time check passed\n")
 
             # if pitchcommand > 1675:
             #     top_down_mode= True
@@ -208,7 +210,7 @@ def dofeedbackcontrol():
                     twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
                     twistmsg.angular.z = 0
 
-            print("Publishing messages")
+            # print("Publishing messages")
             twistpub.publish(twistmsg)
             rcpub.publish(rcmsg)
         elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
