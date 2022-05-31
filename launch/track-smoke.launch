@@ -4,6 +4,8 @@
 
 	<node name="smokedetectionnode" pkg="GAIA-drone-control" type="smokedetectionnode.py" output="screen"/>
 
+	<node name="flownode" pkg="GAIA-drone-control" type="opticalflownode.py" output="screen"/>
+
 	<node name="feedbackcontrolnode" pkg="GAIA-drone-control" type="feedbackcontrolnode.py" output="screen"/>
 
 	<include file="$(find GAIA-drone-control)/launch/mavros-telem-drone.launch"></include>

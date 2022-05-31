@@ -4,12 +4,21 @@ from re import sub
 import rospy
 from rospy.client import init_node
 from sensor_msgs.msg import Image
-from vision_msgs.msg import BoundingBox2D
+from vision_msgs.msg import Detection2D
 import numpy as np
 import cv2
 import os
 import PySpin
-import sys
+import sys, datetime
+
+username = os.getlogin( )
+tmp = datetime.datetime.now()
+stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day, 
+    tmp.hour, tmp.minute, tmp.second))
+savedir = '/home/%s/OutputImages_%s_detection/' % (username,stamp) #script cannot create folder, must already exist when run
+os.makedirs(savedir)
+
 
 import argparse
 from pathlib import Path
@@ -26,7 +35,7 @@ from models.experimental import attempt_load
 from utils.datasets import LoadImages, LoadStreams
 from utils.general import check_img_size, non_max_suppression, scale_coords, xyxy2xywh
 from utils.torch_utils import select_device
-
+from utils.plots import Annotator, colors
 from utils.augmentations import letterbox
 
 import time
@@ -36,13 +45,22 @@ global pub,box
 #global initialized variables for detection model
 global imgsz, model, device, names
 
+
+#--------OPTION TO VIEW DETECTION RESULTS IN REAL_TIME-------------#
+VIEW_IMG=True
+SAVE_IMG = True
+#-----------------------------------------------------#
+
 def imagecallback(img):
     global pub,box
     global imgsz, model, device, names
-    box = BoundingBox2D()
-    
-    if rospy.Time.now() - img.header.stamp > rospy.Duration(.25):
-        print("dropping old image\n")
+    box = Detection2D()
+    # print(img.header.stamp)
+    # print('Time before running detection')
+    # print('Image %d' % img.header.seq)
+    # print(img.header.stamp)
+    if rospy.Time.now() - img.header.stamp > rospy.Duration(.5):
+        # print("DetectionNode: dropping old image from detection\n")
         return
 
     start = time.time()
@@ -54,48 +72,70 @@ def imagecallback(img):
     # cv2.waitKey(0)
     
     #TODO: Run network, set bounding box parameters
-    smoke = detect_smoke(img_numpy,imgsz,model,device,names)
-    if len(smoke) != 0 and smoke[0].confidence > 0.65:
-        print(smoke[0].bounding_box, smoke[0].confidence)
-
-        box.center.x = smoke[0].bounding_box[0]
-        box.center.y = smoke[0].bounding_box[1]
-        box.center.theta = 0
-        box.size_x = smoke[0].bounding_box[2]
-        box.size_y = smoke[0].bounding_box[3]
-        pub.publish(box)
+    smoke = detect_smoke(img_numpy,imgsz,model,device,names,savenum=img.header.seq)
+    # cv2.imshow('frame',im_with_boxes)
+    # cv2.waitKey(1)
+    
+    
+    # print(img.header)
+    # print('Printing time stamps at exchange in detection')
+    # print(img.header.stamp)
+    box.header.seq = img.header.seq
+    box.header.stamp = img.header.stamp
+    box.header.frame_id = ''
+    # print(box.header.stamp)
+    box.source_img = img
+    if len(smoke) != 0 and smoke[0].confidence > 0.4:
+        # print(smoke[0].bounding_box, smoke[0].confidence)
+        box.bbox.center.x = smoke[0].bounding_box[0]
+        box.bbox.center.y = smoke[0].bounding_box[1]
+        box.bbox.center.theta = 0
+        box.bbox.size_x = smoke[0].bounding_box[2]
+        box.bbox.size_y = smoke[0].bounding_box[3]
+    else:
+        box.bbox.center.x = -1
+        box.bbox.center.y = -1
+        box.bbox.center.theta = -1
+        box.bbox.size_x = -1
+        box.bbox.size_y = -1
+    pub.publish(box)
+    # print('Time after running detection')
+    # print('Image %d' % box.source_img.header.seq)
+    # print(box.source_img.header.stamp)
+    
     end = time.time()
-    print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
+    # print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
 
 def init_detection_node():
     global pub,box
-    pub = rospy.Publisher('/gaia/bounding_box', BoundingBox2D, queue_size=1)
-    box = BoundingBox2D()
+    pub = rospy.Publisher('/gaia/bounding_box', Detection2D, queue_size=1)
+    box = Detection2D()
 
     # Initialize detection code before subscriber because this takes some time
     global imgsz, model, device, names
     print('Initializing model')
     # weights=YOLOv5_ROOT / 'yolov5s.pt'
-    weights=YOLOv5_ROOT / 'smoke.pt'
+    # weights=YOLOv5_ROOT / 'yolov5s.pt'
+    #weights=YOLOv5_ROOT / 'smoke.pt'
+    # weights=YOLOv5_ROOT / 'realsmoke_3aug_betterBalance.pt'
+    # weights=YOLOv5_ROOT / 'best_2022-04-26.pt'
+    # weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withSmokeStack_invertAll_50epochs.pt'
+    # weights=YOLOv5_ROOT / 'smoke400_100empty_H-M-L_color_withUMore.pt'
+    weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
     model, device, names = detect_init(weights)
-    imgsz = [256,256] # scaled image size to run inference on
+    imgsz = [448,448] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     
     
-    # print('Loading image')
-    # img_path = 'traffic.jpeg'
-    # img_path = 'smoke_stack.jpeg'
-    # img_path = str(YOLOv5_ROOT / 'data/images/zidane.jpg')
-    # img = cv2.imread(img_path)
 
     # End detection initialization
-
-    rospy.Subscriber('/camera/image', Image, imagecallback)
     rospy.init_node('detectionnode', anonymous=False)
+    rospy.Subscriber('/camera/image', Image, imagecallback)
+    
 
     rospy.spin()
 
-def detect_smoke(img0,imgsz,model,device,names):
+def detect_smoke(img0,imgsz,model,device,names,savenum):
     
     # weights=YOLOv5_ROOT / 'yolov5s.pt'  # model.pt path(s)
     # source=YOLOv5_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
@@ -127,7 +167,7 @@ def detect_smoke(img0,imgsz,model,device,names):
     # Padded resize
     img = letterbox(img0, stride=stride, auto=True)[0]
     # Convert
-    # img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+    img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
     img = np.array((img,img,img))
     img = np.ascontiguousarray(img)
     # imgsz = img.shape
@@ -150,6 +190,9 @@ def detect_smoke(img0,imgsz,model,device,names):
         # im0 = img0.copy()
         # p, s, im0, frame = path, '', im0s.copy(), getattr(dataset, 'frame', 0)
         gn = torch.tensor(img0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+        
+        annotator = Annotator(img0, line_width=1, example=str(names))
+        
         if len(det):
             # Rescale boxes from img_size to im0 size
             det[:, :4] = scale_coords(img.shape[2:], det[:, :4], img0.shape).round()
@@ -160,9 +203,22 @@ def detect_smoke(img0,imgsz,model,device,names):
                 xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                 confidence = float(conf)
                 object_class = names[int(cls)]
-                
+                # if save_img or save_crop or view_img:  # Add bbox to image
+                if VIEW_IMG:
+                    c = int(cls)  # integer class
+                    label = f'{names[c]} {conf:.2f}'
+                    annotator.box_label(xyxy, label, color=colors(c, True))
                 # adding object to list
                 obj.append(DetectedObject(np.array(xywh),confidence,object_class))
+
+        im_with_boxes = annotator.result()
+        
+        
+        # if VIEW_IMG:
+        #     # im_with_boxes = annotator.result()
+        #     cv2.imshow('gopro', im_with_boxes)
+        #     cv2.waitKey(1)  # 1 millisecond
+
 
     #------return smoke with max confidence------------#
     bestsmoke = []
@@ -170,7 +226,13 @@ def detect_smoke(img0,imgsz,model,device,names):
     for ob in obj:
         if ob.object_class == 'smoke' and ob.confidence > bestconf:
             bestsmoke = [ob]
-            bestconf = ob.confidence
+            bestconf = ob.confidence  
+    if SAVE_IMG:
+        cv2.imwrite(savedir+'Detection-%06.0f.jpg' % savenum,im_with_boxes)
+    if VIEW_IMG:
+        # im_with_boxes = annotator.result()
+        cv2.imshow('gopro', im_with_boxes)
+        cv2.waitKey(1)  # 1 millisecond
     return bestsmoke
 
 ## methods from yolov5_smoke/detect_fun.py
