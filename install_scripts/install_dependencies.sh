@@ -1,6 +1,18 @@
 #Install dependencies for GAIA-drone-control
 #should be run as './install_dependencies.sh', without sudo. 
 #You may need to enter the root password multiple times during the execution depending on execution speed (e.g, on Jetsons)
+
+# create virtual environment
+mkdir ~/gaia-feedback-control
+cd ~/mkdir gaia-feedback-control
+python3.6 -m venv gaia-fc-env
+cd ~
+
+# install all python modules to virtual environment
+py_env=/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
+#upgrade pip, required for installing matplotlib and possibly some others
+$py_env -m pip install --upgrade pip
+
 sudo apt update
 sudo apt-get update
 
@@ -19,8 +31,8 @@ if ! grep -Fxq "source /opt/ros/melodic/setup.bash" ~/.bashrc;
 fi
 
 #this is a convenience source for the gaia-ws, if you are working with other workspaces as well you may want to drop this
-if ! grep -Fxq "source ~/gaia-ws/devel/setup.bash" ~/.bashrc; 
-    then echo "source ~/gaia-ws/devel/setup.bash" >> ~/.bashrc; 
+if ! grep -Fxq "source ~/gaia-feedback-control/devel/setup.bash" ~/.bashrc; 
+    then echo "source ~/gaia-feedback-control/devel/setup.bash" >> ~/.bashrc; 
 fi
 
 #This is a convenience call to change permission on /dev/ttyTHS1 so this command does not have to be run before launching Mavros (or our code that uses Mavros). As a consequence you will have to enter the root password whenever you open the terminal, so you may want to delete it if not using the repo frequently.
@@ -53,17 +65,17 @@ sudo /opt/ros/melodic/lib/mavros/install_geographiclib_datasets.sh
 
 #install some fixes for using ros melodic with Python3
 sudo apt-get install -y python3-pip python3-yaml
-sudo pip3 install rospkg catkin_pkg
+$py_env -m pip install rospkg catkin_pkg
 
 #install necessary python packages
-sudo pip3 install Cython
-sudo pip3 install numpy==1.19.4 #1.19.5 causes issue with matplotlib install
+$py_env -m pip install Cython
+$py_env -m pip install numpy==1.19.4 #1.19.5 causes issue with matplotlib install
 
 #appears to be necessary for scipy
 sudo apt-get install -y gfortran libopenblas-dev liblapack-dev
 
 # install dependecies for GoPro camera using goprocam API
-sudo pip3 install goprocam
+$py_env -m pip install goprocam
 sudo apt install ffmpeg
 
 #install dependencies for running yolov5 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -73,46 +85,40 @@ cd ~
 sudo apt-get install -y libopenblas-base libopenmpi-dev
 curl -LO https://nvidia.box.com/shared/static/p57jwntv436lfrd78inwl7iml6p13fzh.whl
 mv p57jwntv436lfrd78inwl7iml6p13fzh.whl torch-1.8.0-cp36-cp36m-linux_aarch64.whl
-sudo pip3 install torch-1.8.0-cp36-cp36m-linux_aarch64.whl
+$py_env -m pip install torch-1.8.0-cp36-cp36m-linux_aarch64.whl
 rm torch-1.8.0-cp36-cp36m-linux_aarch64.whl
 
 #attempt to print to confirm success"
-sudo python3 -c "import torch; print(torch.cuda.is_available())"
+$py_env -c "import torch; print(torch.cuda.is_available())"
 
 sudo apt install -y libjpeg-dev zlib1g-dev
 git clone --branch v0.9.1 https://github.com/pytorch/vision torchvision
 cd torchvision/
-sudo python3 setup.py install
+$py_env setup.py install
 cd ..
-
-#create the default directory for saved images (python code currently will not create it itself which causes error)
-mkdir ~/OutputImages
-
-#upgrade pip, required for installing matplotlib and possibly some others
-sudo pip3 install --upgrade pip
 
 sudo apt-get install -y libfreetype6-dev #must be installed before pillow or causes "the imaging_ft c module is not installed" error for yolo. If not remove ALL instances of pillow and reinstall with 'sudo pip3 install --no-cache-dir pillow'
 
 # sudo pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
 #attempt to use actual requirements.txt for now
-sudo pip3 install matplotlib==3.2.2
-# sudo pip3 install numpy
-sudo pip3 install opencv-python
-sudo pip3 install Pillow
-sudo pip3 install PyYAML
-sudo pip3 install requests
-sudo pip3 install scipy==1.4.1 #had an issue with not automatically upgrading, need >=1.4.1 for yolo
-sudo pip3 install torch
-sudo pip3 install torchvision
-sudo pip3 install tqdm
-sudo pip3 install tensorboard
-sudo pip3 install pandas
-sudo pip3 install seaborn
-sudo pip3 install thop
+$py_env -m pip install matplotlib
+# $py_env -m pip install numpy
+$py_env -m pip install opencv-contrib-python
+# $py_env -m pip install Pillow
+# $py_env -m pip install PyYAML
+$py_env -m pip install requests
+$py_env -m pip install --upgrade scipy #had an issue with not automatically upgrading, need >=1.4.1 for yolo
+# $py_env -m pip install torch
+$py_env -m pip install torchvision
+$py_env -m pip install tqdm
+$py_env -m pip install tensorboard
+$py_env -m pip install pandas
+$py_env -m pip install seaborn
+$py_env -m pip install thop
 
 #end yolov5 dependencies ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 #Convenience installs to prepare for installing spinnaker:
-sudo apt-get install -y libusb-1.0-0
+# sudo apt-get install -y libusb-1.0-0
 
 

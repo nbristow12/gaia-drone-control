@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-# license removed for brevity
+#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
+# # license removed for brevity
 import cv2 as cv
 import numpy as np
 from pathlib import Path

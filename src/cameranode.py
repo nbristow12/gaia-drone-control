@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
+#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
 # license removed for brevity
 from tkinter import image_types
 import rospy
 from sensor_msgs.msg import Image
 import os, datetime
-import PySpin
+# import PySpin
 import sys, subprocess, time
 import cv2
 from goprocam import GoProCamera
@@ -16,6 +16,8 @@ import queue, threading
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
 VIEW_IMG=False
 #-----------------------------------------------------#
+
+PI_CAM = False # just for testing when I didn't have gopro with me...
 
 save_image = True
 username = os.getlogin( )
@@ -77,10 +79,10 @@ def publishimages():
     """
 
 
-    
-    gpCam = GoProCamera.GoPro()
-    #gpCam.gpControlSet(constants.Stream.BIT_RATE, constants.Stream.BitRate.B2_4Mbps)
-    #gpCam.gpControlSet(constants.Stream.WINDOW_SIZE, constants.Stream.WindowSize.W480)
+    if not PI_CAM:
+        gpCam = GoProCamera.GoPro()
+        #gpCam.gpControlSet(constants.Stream.BIT_RATE, constants.Stream.BitRate.B2_4Mbps)
+        #gpCam.gpControlSet(constants.Stream.WINDOW_SIZE, constants.Stream.WindowSize.W480)
     device_serial_number = False
 
     try:
@@ -88,7 +90,12 @@ def publishimages():
         
         # cap = cv2.VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
         # cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # setting buffer size to 1, only latest frame kept
-        cap = VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
+        if PI_CAM:
+            cmd = gstreamer_pipeline()
+            print(cmd)
+            cap = cv2.VideoCapture(cmd, cv2.CAP_GSTREAMER)
+        else:
+            cap = VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
         
 
 
@@ -102,8 +109,10 @@ def publishimages():
 
                 #  Retrieve next received image
 
-                
-                img_raw = cap.read()
+                if PI_CAM:
+                    _,img_raw = cap.read()
+                else:
+                    img_raw = cap.read()
                 if img_raw is not None:
                     ret = True
                     if first_image:
@@ -172,6 +181,40 @@ def publishimages():
     #     rospy.loginfo(hello_str)
     #     pub.publish(hello_str)
     #     rate.sleep()
+
+def gstreamer_pipeline(
+    sensor_id=0,
+    capture_width=640,
+    capture_height=480,
+    display_width=640,
+    display_height=480,
+    framerate=30,
+    flip_method=0,
+    exposure_time=100,
+    gain=0.0,
+):
+    cmd_init = "nvarguscamerasrc sensor-mode=0 sensor-id=%d" % sensor_id
+    if gain!=0.0:
+         cmd_init = cmd_init + " gainrange='%d %d'" % (gain,gain)
+    if exposure_time!=0:
+         cmd_init = cmd_init + " exposuretimerange='%d %d'" % (exposure_time*1e3,exposure_time*1e3)
+    cmd_init = cmd_init + " !"
+    cmd_main = (
+        "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
+        "nvvidconv flip-method=%d ! "
+        "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+        "videoconvert ! "
+        "video/x-raw, format=(string)BGR ! appsink"
+        % (
+            capture_width,
+            capture_height,
+            framerate,
+            flip_method,
+            display_width,
+            display_height,
+        )
+    )
+    return cmd_init+cmd_main
 
 if __name__ == '__main__':
     try:

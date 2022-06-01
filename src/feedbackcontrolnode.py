@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
 # license removed for brevity
 import rospy
 from vision_msgs.msg import BoundingBox2D,Detection2D

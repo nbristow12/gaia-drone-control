@@ -7,8 +7,8 @@ gaia-drone-control includes control and simulation methods developed for control
 ### Clone repo:
 ```bash
 cd ~
-mkdir gaia-ws
-cd gaia-ws
+mkdir gaia-feedback-control
+cd gaia-feedback-control
 mkdir src
 cd src
 git clone https://github.umn.edu/HongFlowFieldImagingLab/GAIA-drone-control.git
@@ -17,10 +17,12 @@ git clone https://github.umn.edu/HongFlowFieldImagingLab/GAIA-drone-control.git
 ### Run install script: (This will take quite some time on the Jetson and you will likely be prompted to re-enter the root password a few times)
 
 ```bash
-cd ~/gaia-ws/src/GAIA-drone-control/install_scripts
+cd ~/gaia-feedback-control/src/GAIA-drone-control/install_scripts
 ./install_dependencies.sh
 ```
-The install script is configured to install ROS and the dependencies needed to run yolov5. It does not currently install Spinnaker or PySpin, this must be done manually to complete the setup and be able to run things.
+The install script is configured to install ROS and the dependencies needed to run yolov5. 
+
+<!-- It does not currently install Spinnaker or PySpin, this must be done manually to complete the setup and be able to run things. 
 
 ### Manually install spinnaker node, spinnaker python:
 Either download directly from spinnaker website, or from our Google Drive:
@@ -42,12 +44,12 @@ Accept the agreement and answer yes to all the prompts (except probably making s
 To install spinnaker_python-2.5.0.80-cp36-cp36m-linux_aarch64 unzip and run:
 ```bash
 sudo pip3 install spinnaker_python-2.5.0.80-cp36-cp36m-linux_aarch64.whl
-```
+``` -->
 ### Finalize installation:
 To finalize the installation, initialize and build the catkin project to make finding ROS packages easy:
 ```bash
 source ~/.bashrc
-cd ~/gaia-ws
+cd ~/gaia-feedback-control
 catkin init
 catkin build
 ```

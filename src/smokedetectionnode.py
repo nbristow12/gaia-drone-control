@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
 # license removed for brevity
 from re import sub
 import rospy
@@ -8,7 +8,7 @@ from vision_msgs.msg import Detection2D
 import numpy as np
 import cv2
 import os
-import PySpin
+# import PySpin
 import sys, datetime
 
 username = os.getlogin( )
