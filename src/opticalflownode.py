@@ -11,7 +11,7 @@ import os, datetime, time
 
 #--------OPTION TO VIEW FLOW RESULTS IN REAL_TIME-------------#
 VIEW_IMG=False # also option to save image of output
-SAVE_FLOW = False
+SAVE_FLOW = True
 #-----------------------------------------------------#
 
 #--------OPTION FOR RAFT OPTICAL FLOW------------#
@@ -34,7 +34,7 @@ tmp = datetime.datetime.now()
 stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
     (tmp.year, tmp.month, tmp.day, 
     tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/OutputImages_%s_flow/' % (username,stamp) #script cannot create folder, must already exist when run
+savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/flow/' % (username,stamp) 
 os.makedirs(savedir)
 
 global flowpub,flow
@@ -249,10 +249,11 @@ def init_flownode():
     # initialize list of images with bounding boxes
     datalist = []
     # each time box is computed, append to list, and if there are enough images, run optical flow
-    rospy.Subscriber('/gaia/bounding_box', Detection2D, newloopcallback)
-
-    rospy.spin()
     
+    #----------------uncomment to turn ON optical flow------------#
+    rospy.Subscriber('/gaia/bounding_box', Detection2D, newloopcallback)
+    rospy.spin()
+    #-----------------------------------------------#
     return
 
 
@@ -270,7 +271,7 @@ def opticalflow(img1,img2,boundingbox,savenum):
     """
 
     print('computing optical flow')
-    
+    t1 = time.time()
     color_filter_thresh = 180
     median_skipping = 1
 
@@ -310,65 +311,77 @@ def opticalflow(img1,img2,boundingbox,savenum):
     flow_inside[color_filter] = np.nan
 
     boxflow_x,boxflow_y = np.nanmedian(flow_inside[:,:,0].flatten()),np.nanmedian(flow_inside[:,:,1].flatten())
+    t2 = time.time()
+    print('Optical flow computation took %f seconds' % (t2-t1))
+    
+    # drawing plot
+    tmp = img1.copy()
+        # drawing flow arrows
+    step = 5
+    for ii in range(0,flow_inside.shape[1],step):
+        for jj in range(0,flow_inside.shape[0],step):
+            if not any(np.isnan(flow_inside[jj,ii,:])):
+                tmp = cv.arrowedLine(
+                    tmp,
+                    pt1 = np.array([ii,jj]) + np.array([x1,y1]),
+                    pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int),
+                    color=[0,255,0],
+                    thickness=1,
+                    tipLength=0.5
+                )
+    
+    
+    if np.isnan(boxflow_x):
+        boxflow_x = 0
+    if np.isnan(boxflow_y):
+        boxflow_y = 0
+    # adding bounding box
+    tmp = cv.rectangle(tmp,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
 
-    if VIEW_IMG:
-        tmp = img1.copy()
-            # drawing flow arrows
-        step = 5
-        for ii in range(0,flow_inside.shape[1],step):
-            for jj in range(0,flow_inside.shape[0],step):
-                if not any(np.isnan(flow_inside[jj,ii,:])):
-                    tmp = cv.arrowedLine(
-                        tmp,
-                        pt1 = np.array([ii,jj]) + np.array([x1,y1]),
-                        pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int),
-                        color=[0,255,0],
-                        thickness=1,
-                        tipLength=0.5
-                    )
-        
-        
-        if np.isnan(boxflow_x):
-            boxflow_x = 0
-        if np.isnan(boxflow_y):
-            boxflow_y = 0
-        # adding bounding box
-        tmp = cv.rectangle(tmp,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
 
 
-
-        if boxflow_x != 0 and boxflow_y !=0:# drawing bulk motion arrow in bounding box
-            tmp = cv.arrowedLine(
-                tmp,
-                pt1 = np.array([(x1+x2)//2,(y1+y2)//2],dtype=np.uint32),
-                pt2 = np.array([(x1+x2)/2,(y1+y2)/2],dtype=np.uint32) + 10*np.array([boxflow_x,boxflow_y],dtype=np.uint32),
-                color=[255,0,0],
-                thickness=5,
-                tipLength=0.5
-            )
-
-        # drawing bulk motion arrow from entire frame
+    if boxflow_x != 0 and boxflow_y !=0:# drawing bulk motion arrow in bounding box
         tmp = cv.arrowedLine(
             tmp,
-            pt1 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32),
-            pt2 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32) + 10*np.array([flow_outside_x,flow_outside_y],dtype=np.uint32),
-            color=[255,255,0],
+            pt1 = np.array([(x1+x2)//2,(y1+y2)//2],dtype=np.uint32),
+            pt2 = np.array([(x1+x2)/2,(y1+y2)/2],dtype=np.uint32) + 10*np.array([boxflow_x,boxflow_y],dtype=np.uint32),
+            color=[255,0,0],
             thickness=5,
             tipLength=0.5
         )
 
-        # plt.imshow(cv.cvtColor(tmp,cv.COLOR_BGR2RGB))
-        # plt.show()
-        # result = tmp
+    # drawing bulk motion arrow from entire frame
+    tmp = cv.arrowedLine(
+        tmp,
+        pt1 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32),
+        pt2 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32) + 10*np.array([flow_outside_x,flow_outside_y],dtype=np.uint32),
+        color=[255,255,0],
+        thickness=5,
+        tipLength=0.5
+    )
 
-        cv.imshow('gopro',tmp)
+    # plt.imshow(cv.cvtColor(tmp,cv.COLOR_BGR2RGB))
+    # plt.show()
+    result = tmp
+
+    if VIEW_IMG:
+        t1 = time.time()
+        cv.imshow('gopro',result)
         cv.waitKey(1)
-        savename = savedir+'OpticalFlow-%06.0f.jpg' % savenum
-        cv.imwrite(savename,tmp)
+        t2 = time.time()
+        print('Optical flow plotting took %f seconds' % (t2-t1))
+
+
         
     if SAVE_FLOW:
+        t1 = time.time()
+        savename = savedir+'OpticalFlow-%06.0f.jpg' % savenum
+        cv.imwrite(savename,tmp)
         np.savez(savedir+'OpticalFlow-%06.0f' % savenum,img1,flow_outside_x,flow_outside_y,flow_inside,boxflow_x,boxflow_y)
-    
+        t2 = time.time()
+        print('Optical flow saving took %f seconds' % (t2-t1))
+        # if VIEW_IMG:
+
     
     
     return np.float64(boxflow_x),np.float64(boxflow_y)

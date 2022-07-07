@@ -16,18 +16,19 @@ time_lastbox = None
 
 top_down_mode = True  # different operating mode for motion if the drone is far above the feature
 
-setpoint_size = .5 #fraction of frame that should be filled by target. Largest axis (height or width) used.
+setpoint_size = .6 #fraction of frame that should be filled by target. Largest axis (height or width) used.
 deadzone_size = 0.0 #deadzone on controlling size
 deadzone_position = 0.0 #deadzone on controlling position in frame
 
-vertical_gain = 2 # half of the size_gain value
-size_gain = 6
+size_gain = 5
 yaw_gain = 1
 gimbal_pitch_gain = -100
 gimbal_yaw_gain = 40
 yaw_mode = False
-traverse_gain = 3
-flow_gain = 10
+traverse_gain = 2.5
+flow_gain = 30
+vertical_gain = 3 # half of the size_gain value
+
 
 limit_speed = 2
 limit_speed_v = 0.5 # different speed limit for changing altitude
@@ -40,6 +41,15 @@ pitchcommand = 1850 # looking down
 yawcommand = 1500
 
 yaw = 0
+
+# initialize
+horizontalerror = 0 # positive gives left
+verticalerror=0 # positive gives forawrd (in top-down mode)
+sizeerror=0 # positive gives downward (in top-down)
+
+vspeed = 0 # positive is upwards
+hspeed = 0 # positive is to the right
+fspeed = 0 # positive is backwards
  
 def euler_from_quaternion(x, y, z, w):
         """
@@ -75,30 +85,31 @@ def yaw_callback(pose):
 def boundingbox_callback(box):
     global horizontalerror, verticalerror, sizeerror
     global time_lastbox, pitchcommand, yawcommand
-    #positive errors left, up, forward
+    #positive errors left, up, forward # DEPRECATED guidance
+    # positive errors give right, up
     if box.bbox.center.x != -1:
-        horizontalerror = .5-box.bbox.center.x
-        verticalerror = .5-box.bbox.center.y
+        # horizontalerror = .5-box.bbox.center.x
+        # verticalerror = .5-box.bbox.center.y
         sizeerror = setpoint_size - max(box.bbox.size_x, box.bbox.size_y)
         time_lastbox = rospy.Time.now()
-        pitchdelta = verticalerror * gimbal_pitch_gain
-        pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
-        pitchcommand += pitchdelta
-        pitchcommand = min(max(pitchcommand,1000),2000)
-        yawdelta = horizontalerror * gimbal_yaw_gain
-        yawdelta = min(max(yawdelta,-limit_yawchange),limit_yawchange)
+        # pitchdelta = verticalerror * gimbal_pitch_gain
+        # pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
+        # pitchcommand += pitchdelta
+        # pitchcommand = min(max(pitchcommand,1000),2000)
+        # yawdelta = horizontalerror * gimbal_yaw_gain
+        # yawdelta = min(max(yawdelta,-limit_yawchange),limit_yawchange)
         # yawcommand += yawdelta
         # yawcommand = min(max(yawcommand,1000),2000)
         yawcommand = 1500
     return
 
 def flow_callback(flow):
-    global horizontalerror, verticalerror
+    global horizontalerror, verticalerror,time_lastbox
     # adjust the feedback error using the optical flow
     print('doing optical flow feedback')
-    horizontalerror += flow.size_x * flow_gain
-    verticalerror += flow.size_y * flow_gain
-
+    horizontalerror = -flow.size_x * flow_gain
+    verticalerror = flow.size_y * flow_gain
+    time_lastbox = rospy.Time.now()
     return
 
 def dofeedbackcontrol():
@@ -123,6 +134,8 @@ def dofeedbackcontrol():
         #feedback control algorithm
         #don't publish if message is old
         if time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5):
+        # if True:
+        #     print('permanent loop')
             # print("Time check passed\n")
 
             # if pitchcommand > 1675:
@@ -142,12 +155,14 @@ def dofeedbackcontrol():
                 yawrate = 0
                 # yawrate = ((yawcommand - 1500)/1000)*yaw_gain*.75 #.75 multiplier included here for now, should be pulled out to gain later
                 hspeed = -horizontalerror * traverse_gain
-                fspeed = verticalerror * traverse_gain
+                # hspeed = -2
+                fspeed = -verticalerror * traverse_gain
+                # fspeed = -2
                 # hspeed = 0
                 # fspeed = 0
                 
                 vspeed = -sizeerror * vertical_gain # size error is negative because you want to move down (negative velocity) to get closer
-                # vspeed = 1
+                # vspeed = 0
                 # pitchdelta = verticalerror * gimbal_pitch_gain
                 # pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
                 #pitchcommand += pitchdelta

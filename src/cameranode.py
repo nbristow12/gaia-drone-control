@@ -1,4 +1,6 @@
 #!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
+# ######!/usr/bin/env python3 
+
 # license removed for brevity
 from tkinter import image_types
 import rospy
@@ -15,17 +17,19 @@ import queue, threading
 
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
 VIEW_IMG=False
+save_image = False
+save_format = '.avi'
 #-----------------------------------------------------#
 
-PI_CAM = False # just for testing when I didn't have gopro with me...
 
-save_image = True
+
+
 username = os.getlogin( )
 tmp = datetime.datetime.now()
 stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
     (tmp.year, tmp.month, tmp.day, 
     tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/OutputImages_%s/' % (username,stamp) #script cannot create folder, must already exist when run
+savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/camera/' % (username,stamp) #script cannot create folder, must already exist when run
 os.makedirs(savedir)
 
 #seems to find device automatically if connected? Why don't we do this?
@@ -79,23 +83,22 @@ def publishimages():
     """
 
 
-    if not PI_CAM:
-        gpCam = GoProCamera.GoPro()
-        #gpCam.gpControlSet(constants.Stream.BIT_RATE, constants.Stream.BitRate.B2_4Mbps)
-        #gpCam.gpControlSet(constants.Stream.WINDOW_SIZE, constants.Stream.WindowSize.W480)
+    gpCam = GoProCamera.GoPro()
+    #gpCam.gpControlSet(constants.Stream.BIT_RATE, constants.Stream.BitRate.B2_4Mbps)
+    #gpCam.gpControlSet(constants.Stream.WINDOW_SIZE, constants.Stream.WindowSize.W480)
     device_serial_number = False
+
+    # initializing timelog
+    timelog = open(savedir+'Timestamps.txt','w')
+    timelog.write('FrameID,Timestamp\n')
 
     try:
         result = True
         
         # cap = cv2.VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
         # cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # setting buffer size to 1, only latest frame kept
-        if PI_CAM:
-            cmd = gstreamer_pipeline()
-            print(cmd)
-            cap = cv2.VideoCapture(cmd, cv2.CAP_GSTREAMER)
-        else:
-            cap = VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
+
+        cap = VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
         
 
 
@@ -109,10 +112,7 @@ def publishimages():
 
                 #  Retrieve next received image
 
-                if PI_CAM:
-                    _,img_raw = cap.read()
-                else:
-                    img_raw = cap.read()
+                img_raw = cap.read()
                 if img_raw is not None:
                     ret = True
                     if first_image:
@@ -126,6 +126,9 @@ def publishimages():
                 img.header.seq = i
                 img.header.stamp = rospy.Time.now()
 
+
+                # adding to time stamp log
+                timelog.write('%d,%f\n' % (img.header.seq,time.time()))
   
                 if not ret:
                     print('Image capture with opencv unsuccessful')
@@ -154,13 +157,25 @@ def publishimages():
                     if save_image:
                         # Create a unique filename
                         if device_serial_number:
-                            filename = savedir + ('Acquisition-%s-%06.0f.jpg' % (device_serial_number, i))
+                            filename = savedir + ('Acquisition-%s-%06.0f' % (device_serial_number, i))
                         else:  # if serial number is empty
-                            filename = savedir + ('Acquisition-%06.0f.jpg' % i)
+                            filename = savedir + ('Acquisition-%06.0f' % i)
 
 
-                        
-                        cv2.imwrite(filename,img_raw)
+                        if save_format=='.raw':
+                            fid = open(filename+save_format,'wb')
+                            fid.write(img_raw.flatten())
+                            fid.close()
+                        elif save_format == '.avi':
+                            if i==1:
+                                codec = cv2.VideoWriter_fourcc('M','J','P','G')
+                                video = cv2.VideoWriter(savedir+'Acquisition'+save_format,
+                                    fourcc=codec,
+                                    fps=30,
+                                    frameSize = (img_raw.shape[1],img_raw.shape[0]))
+                            video.write(img_raw)
+                        else:
+                            cv2.imwrite(filename+save_format,img_raw)
 
             except Exception as e:       
                 print('Error: %s' % e)
@@ -182,39 +197,39 @@ def publishimages():
     #     pub.publish(hello_str)
     #     rate.sleep()
 
-def gstreamer_pipeline(
-    sensor_id=0,
-    capture_width=640,
-    capture_height=480,
-    display_width=640,
-    display_height=480,
-    framerate=30,
-    flip_method=0,
-    exposure_time=100,
-    gain=0.0,
-):
-    cmd_init = "nvarguscamerasrc sensor-mode=0 sensor-id=%d" % sensor_id
-    if gain!=0.0:
-         cmd_init = cmd_init + " gainrange='%d %d'" % (gain,gain)
-    if exposure_time!=0:
-         cmd_init = cmd_init + " exposuretimerange='%d %d'" % (exposure_time*1e3,exposure_time*1e3)
-    cmd_init = cmd_init + " !"
-    cmd_main = (
-        "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
-        "nvvidconv flip-method=%d ! "
-        "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
-        "videoconvert ! "
-        "video/x-raw, format=(string)BGR ! appsink"
-        % (
-            capture_width,
-            capture_height,
-            framerate,
-            flip_method,
-            display_width,
-            display_height,
-        )
-    )
-    return cmd_init+cmd_main
+# def gstreamer_pipeline(
+#     sensor_id=0,
+#     capture_width=640,
+#     capture_height=480,
+#     display_width=640,
+#     display_height=480,
+#     framerate=30,
+#     flip_method=0,
+#     exposure_time=100,
+#     gain=0.0,
+# ):
+#     cmd_init = "nvarguscamerasrc sensor-mode=0 sensor-id=%d" % sensor_id
+#     if gain!=0.0:
+#          cmd_init = cmd_init + " gainrange='%d %d'" % (gain,gain)
+#     if exposure_time!=0:
+#          cmd_init = cmd_init + " exposuretimerange='%d %d'" % (exposure_time*1e3,exposure_time*1e3)
+#     cmd_init = cmd_init + " !"
+#     cmd_main = (
+#         "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
+#         "nvvidconv flip-method=%d ! "
+#         "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+#         "videoconvert ! "
+#         "video/x-raw, format=(string)BGR ! appsink"
+#         % (
+#             capture_width,
+#             capture_height,
+#             framerate,
+#             flip_method,
+#             display_width,
+#             display_height,
+#         )
+#     )
+#     return cmd_init+cmd_main
 
 if __name__ == '__main__':
     try:
