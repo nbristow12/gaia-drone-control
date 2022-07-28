@@ -17,7 +17,7 @@ import queue, threading
 
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
 VIEW_IMG=False
-save_image = False
+save_image = True
 save_format = '.avi'
 #-----------------------------------------------------#
 

@@ -9,6 +9,10 @@ from sensor_msgs.msg import Image
 from vision_msgs.msg import BoundingBox2D,Detection2D
 import os, datetime, time
 
+#------------OPTION TO TURN OFF OPTICAL FLOW-------#
+OPT_FLOW_OFF = False
+#---------------------------------------------------#
+
 #--------OPTION TO VIEW FLOW RESULTS IN REAL_TIME-------------#
 VIEW_IMG=False # also option to save image of output
 SAVE_FLOW = True
@@ -41,54 +45,81 @@ global flowpub,flow
 
 skip=5
 
-# def imageboxcallback(datalist):
-#     """callback functio to run once the two images and bounding boxes have been receieved
 
-#     Args:
-#         img1 (_type_): _description_
-#         img2 (_type_): _description_
-#         boundingbox (_type_): _description_
-#     """
-#     global flowpub,flow,good_first_image
-#     flow = BoundingBox2D()
-
-
+def init_flownode():
+    """initializing optical flow node
+    """
+    global flowpub,flow
+    global datalist,good_first_image
+    print('initializing optical flow node')
+    rospy.init_node('opticalflownode', anonymous=False)
+    flowpub = rospy.Publisher('/gaia/flow',BoundingBox2D,queue_size=1)
+    flow = BoundingBox2D() # using this becaue not sure other ros message formats to use
     
-#     if datalist[0].bbox.size_x != -1: # i.e., if bounding box exists for this image
-#         print('got good bounding box, starting flow analysis')
-#         # get image 1
-#         tmp_img = datalist[0].source_img
-#         img1 = np.frombuffer(tmp_img.data,dtype=np.uint8).reshape(tmp_img.height,tmp_img.width,-1)
-#         # get image 2 after some skip (end of list)
-#         tmp_img = datalist[-1].source_img
-#         img2 = np.frombuffer(tmp_img.data,dtype=np.uint8).reshape(tmp_img.height,tmp_img.width,-1)
-        
-        
-#         # img2 = datalist[-1].source_img
-#         # get bounding box for image 1
-#         bb = [datalist[0].bbox.center.x, datalist[0].bbox.center.y, datalist[0].bbox.size_x, datalist[0].bbox.size_y]
-#         # bounding box indices
-#         xx= int(bb[0]*img1.shape[1])
-#         w = int(bb[2]*img1.shape[1])
-#         yy = int(bb[1]*img1.shape[0])
-#         h = int(bb[3]*img1.shape[0])
-#         # yy,h = (bb[[2,4]]*img1.shape[0]).astype(np.uint32)
-#         boundingbox_pixels = [yy-h//2, yy+h//2, xx-w//2, xx+w//2]
-#         # run optical flow analysis to get single vector
-#         savenum = datalist[0].source_img.header.seq
-#         flow_x,flow_y,tmp = opticalflow(img1,img2,boundingbox_pixels,savenum)
 
-#         # normalized displacements by the size of frame
-#         flow.size_x = flow_x/img1.shape[1]
-#         flow.size_y = flow_y/img1.shape[0]
+    if RAFT:        
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--model', help="restore checkpoint")
+        parser.add_argument('--path', help="dataset for evaluation")
+        parser.add_argument('--small', action='store_true', help='use small model')
+        parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
+        parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
+        args = parser.parse_args(['--model','/home/ffil/gaia-ws/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
+                                    '--path','',
+                                    '--small'])
+        # args.model = '/home/ffil/gaia-ws/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
+        # args.path = ''
+        # args.small = True
+        # args.mixed_precision = False
+        # args.alternate_corr = False
         
-        
-        
-#         flowpub.publish(flow)
-#         datalist = [] # clear list after done
-#         good_first_image = False
-#     else:
-#         print('bounding box not found, waiting')
+        print('loading model')
+        global model
+        model = torch.nn.DataParallel(RAFT(args))
+        model.load_state_dict(torch.load(args.model))
+
+        model = model.module
+        model.to(DEVICE)
+        model.eval()
+    
+    # initialize list of images with bounding boxes
+    datalist = []
+    # each time box is computed, append to list, and if there are enough images, run optical flow
+    
+    #----------------uncomment to turn ON optical flow------------#
+    if not OPT_FLOW_OFF:
+        rospy.Subscriber('/gaia/bounding_box', Detection2D, loopcallback)
+        rospy.spin()
+    #-----------------------------------------------#
+    return
+
+def loopcallback(data):
+    global datalist
+    if rospy.Time.now() - data.source_img.header.stamp > rospy.Duration(1):
+        print("OpticalFlowNode: one of images is too old, dropping\n")
+        return
+    if len(datalist)==0:
+        if data.bbox.center.x == -1:
+            # going to wait until a bounding box is found
+            return
+        else:
+            # add image and bounding box as img1
+            datalist.append(data)
+    else:
+        dt = data.source_img.header.stamp - datalist[0].source_img.header.stamp
+        if dt > rospy.Duration(0.2):
+            if dt < rospy.Duration(1):
+            
+                # second image with proper delay found, passing to optical flow
+                datalist.append(data)
+                opticalflowprep(datalist)
+            else:
+                print('Second image too late, emptying list')
+                
+                # emptying the list of images to start fresh
+                datalist = []
+        else:
+            print('Second image too early')
 
 def opticalflowprep(datalist):
     """callback functio to run once the two images and bounding boxes have been receieved
@@ -133,128 +164,8 @@ def opticalflowprep(datalist):
 
 
 
-def newloopcallback(data):
-    global datalist
-    if rospy.Time.now() - data.source_img.header.stamp > rospy.Duration(1):
-        print("OpticalFlowNode: one of images is too old, dropping\n")
-        return
-    if len(datalist)==0:
-        if data.bbox.center.x == -1:
-            # going to wait until a bounding box is found
-            return
-        else:
-            # add image and bounding box as img1
-            datalist.append(data)
-    else:
-        dt = data.source_img.header.stamp - datalist[0].source_img.header.stamp
-        if dt > rospy.Duration(0.2):
-            if dt < rospy.Duration(1):
-            
-                # second image with proper delay found, passing to optical flow
-                datalist.append(data)
-                opticalflowprep(datalist)
-            else:
-                print('Second image too late, emptying list')
-                # print('original: ')
-                # print(datalist[0].source_img.header.stamp)
-                # print('current')
-                # print(data.source_img.header.stamp)
-                # print('dt')
-                # print(dt)
-                # print('rospy threshold')
-                # print(rospy.Duration(1))
-                
-                # emptying the list of images to start fresh
-                datalist = []
-        else:
-            print('Second image too early')
-            
-            
-# def loopcallback(data):
-#     """somewhat hacky approach. create a list of subscribed images and their bounding boxes
-#        keep appending till specified "skip" is reached
-#        once reached, send to optical flow callback
-#        if too many in list, throw out oldest
 
-#     Args:
-#         data (_type_): _description_
-#     """
-#     global datalist,good_first_image
-#     # print(rospy.Time.now())
-#     # print('Time after receiving from detection')
-#     # print('Image %d' % data.header.seq)
-#     # print(data.header.stamp)
-#     if rospy.Time.now() - data.source_img.header.stamp > rospy.Duration(1):
-#         print("dropping old image from optical flow\n")
-#         datalist = []
-#         return
-    
-#     # print('Image %d' % data.header.seq)
-#     # print(data.header.stamp)
-    
-#     if data.bbox.center.x == -1 and not good_first_image:
-#         print('waiting for good first frame to start from')
-#         # good_first_image = False
-#         return
-#     good_first_image = True
-#     print('adding bb to list')
-#     print('length of list: %d' % len(datalist))
-#     datalist.append(data)
-#     if len(datalist) == skip:
-#         # print('Obtained enough images for optical flow test')
-#         imageboxcallback(datalist)
-#     elif len(datalist) > skip:
-#         # print('Too many images')
-#         datalist = datalist[-skip:] # throw out the oldest
-#         imageboxcallback(datalist) # run again
-#     else:
-#         print('Not enough images yet for optical flow')
-
-def init_flownode():
-    """initializing optical flow node
-    """
-    global flowpub,flow
-    global datalist,good_first_image
-    print('initializing optical flow node')
-    rospy.init_node('opticalflownode', anonymous=False)
-    flowpub = rospy.Publisher('/gaia/flow',BoundingBox2D,queue_size=1)
-    flow = BoundingBox2D() # using this becaue not sure other ros message formats to use
-    
-
-    if RAFT:        
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--model', help="restore checkpoint")
-        parser.add_argument('--path', help="dataset for evaluation")
-        parser.add_argument('--small', action='store_true', help='use small model')
-        parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
-        parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
-        args = parser.parse_args(['--model','/home/ffil/gaia-ws/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
-                                    '--path','',
-                                    '--small'])
-        # args.model = '/home/ffil/gaia-ws/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
-        # args.path = ''
-        # args.small = True
-        # args.mixed_precision = False
-        # args.alternate_corr = False
-        
-        print('loading model')
-        global model
-        model = torch.nn.DataParallel(RAFT(args))
-        model.load_state_dict(torch.load(args.model))
-
-        model = model.module
-        model.to(DEVICE)
-        model.eval()
-    
-    # initialize list of images with bounding boxes
-    datalist = []
-    # each time box is computed, append to list, and if there are enough images, run optical flow
-    
-    #----------------uncomment to turn ON optical flow------------#
-    rospy.Subscriber('/gaia/bounding_box', Detection2D, newloopcallback)
-    rospy.spin()
-    #-----------------------------------------------#
-    return
+   
 
 
 def opticalflow(img1,img2,boundingbox,savenum):
