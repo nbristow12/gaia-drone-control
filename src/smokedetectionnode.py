@@ -77,10 +77,11 @@ def imagecallback(img):
     img_numpy = np.frombuffer(img.data,dtype=np.uint8).reshape(img.height,img.width,-1)
 
     if rospy.Time.now() - img.header.stamp > rospy.Duration(.5):
-        # print("DetectionNode: dropping old image from detection\n")
-        text_to_image = 'skipped'
-        # return
+        print("DetectionNode: dropping old image from detection\n")
+        # text_to_image = 'skipped'
+        return
     else:
+        print('DetectionNode: Running detection inference')
         smoke,img_numpy = detect_smoke(img_numpy,imgsz,model,device,names,savenum=img.header.seq)
         
         # print(img.header)
@@ -112,10 +113,10 @@ def imagecallback(img):
         
         # end = time.time()
         # print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
-
+        img_numpy = cv2.putText(img_numpy,text_to_image,(10,30),font, font_size, font_color, font_thickness, cv2.LINE_AA)
     # viewing/saving images
     savenum=img.header.seq
-    img_numpy = cv2.putText(img_numpy,text_to_image,(10,30),font, font_size, font_color, font_thickness, cv2.LINE_AA)
+    
     if SAVE_IMG:
         if save_format=='.raw':
             fid = open(savedir+'Detection-%06.0f.raw' % savenum,'wb')
@@ -137,7 +138,7 @@ def init_detection_node():
 
     # Initialize detection code before subscriber because this takes some time
     global imgsz, model, device, names
-    print('Initializing model')
+    print('Initializing YOLO model')
     # weights=YOLOv5_ROOT / 'yolov5s.pt'
     # weights=YOLOv5_ROOT / 'yolov5s.pt'
     #weights=YOLOv5_ROOT / 'smoke.pt'
@@ -145,7 +146,10 @@ def init_detection_node():
     # weights=YOLOv5_ROOT / 'best_2022-04-26.pt'
     # weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withSmokeStack_invertAll_50epochs.pt'
     # weights=YOLOv5_ROOT / 'smoke400_100empty_H-M-L_color_withUMore.pt'
+    
+    
     weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
+    # weights=YOLOv5_ROOT / 'yolov5s.pt'
     model, device, names = detect_init(weights)
     imgsz = [448,448] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
