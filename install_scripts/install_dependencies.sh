@@ -4,7 +4,7 @@
 
 # create virtual environment
 mkdir ~/gaia-feedback-control
-cd ~/mkdir gaia-feedback-control
+cd ~/gaia-feedback-control
 python3.6 -m venv gaia-fc-env
 cd ~
 
