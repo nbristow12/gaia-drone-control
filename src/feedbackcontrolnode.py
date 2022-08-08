@@ -87,6 +87,7 @@ def yaw_callback(pose):
     yaw = y
     print(pose.pose.position.z) # printing altitude
     print(yaw)
+    print('hi')
 
 def alt_callback(pose):
     global alt
@@ -265,3 +266,4 @@ if __name__ == '__main__':
         dofeedbackcontrol()
     except rospy.ROSInterruptException:
         pass
+

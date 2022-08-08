@@ -236,3 +236,4 @@ if __name__ == '__main__':
         publishimages()
     except rospy.ROSInterruptException:
         pass
+

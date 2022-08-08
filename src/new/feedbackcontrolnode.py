@@ -31,7 +31,7 @@ gimbal_pitch_gain = -100
 gimbal_yaw_gain = 40
 yaw_mode = False
 traverse_gain = 2.5
-flow_gain = 30
+flow_gain = 20
 vertical_gain = 3 # half of the size_gain value
 
 
@@ -102,7 +102,7 @@ def boundingbox_callback(box):
         sizeerror = setpoint_size - max(box.bbox.size_x, box.bbox.size_y)
         if not OPT_FLOW:
             horizontalerror = .5-box.bbox.center.x
-            verticalerror = .5-box.bbox.center.y
+            verticalerror = -(.5-box.bbox.center.y)
         
         if top_down_mode:
             yawcommand = 1500
@@ -123,7 +123,7 @@ def flow_callback(flow):
     # adjust the feedback error using the optical flow
     if OPT_FLOW:
         print('doing optical flow feedback')
-        horizontalerror = -flow.size_x * flow_gain
+        horizontalerror = flow.size_x * flow_gain
         verticalerror = flow.size_y * flow_gain
         time_lastbox = rospy.Time.now()
     return
@@ -265,3 +265,4 @@ if __name__ == '__main__':
         dofeedbackcontrol()
     except rospy.ROSInterruptException:
         pass
+

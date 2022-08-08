@@ -77,11 +77,11 @@ def imagecallback(img):
     img_numpy = np.frombuffer(img.data,dtype=np.uint8).reshape(img.height,img.width,-1)
 
     if rospy.Time.now() - img.header.stamp > rospy.Duration(.5):
-        print("DetectionNode: dropping old image from detection\n")
+        # print("DetectionNode: dropping old image from detection\n")
         # text_to_image = 'skipped'
         return
     else:
-        print('DetectionNode: Running detection inference')
+        # print('DetectionNode: Running detection inference')
         smoke,img_numpy = detect_smoke(img_numpy,imgsz,model,device,names,savenum=img.header.seq)
         
         # print(img.header)
@@ -309,3 +309,4 @@ if __name__ == '__main__':
         init_detection_node()
     except rospy.ROSInterruptException:
         pass
+
