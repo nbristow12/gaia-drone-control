@@ -10,7 +10,7 @@ from vision_msgs.msg import BoundingBox2D,Detection2D
 import os, datetime, time
 
 #------------OPTION TO TURN OFF OPTICAL FLOW-------#
-OPT_FLOW_OFF = False
+OPT_FLOW_OFF = True
 #---------------------------------------------------#
 
 #--------OPTION TO VIEW FLOW RESULTS IN REAL_TIME-------------#
@@ -20,10 +20,11 @@ SAVE_FLOW = True
 
 #--------OPTION FOR RAFT OPTICAL FLOW------------#
 USE_RAFT=True # also option to save image of output
+USE_COMP = False    # use any background compensation at all
 USE_OUTSIDE_MEDIAN_COMP = False
-USE_INPAINTING = True
+USE_INPAINTING_COMP = True
 USE_FILTER_FLOW = False
-USE_FILTER_COLOR = True
+USE_FILTER_COLOR = True # turn this False if not tracking smoke
 USE_HOMOGRAPHY = False
 USE_UNCERTAINTY = True
 USE_MIN_VECTORS_FILTER = False
@@ -33,7 +34,11 @@ if USE_HOMOGRAPHY: USE_OUTSIDE_MEDIAN_COMP=False
 if USE_RAFT:
     DEVICE = 'cuda'
     import sys
-    sys.path.append('/home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/RAFTcore')
+    FILE = Path(__file__).resolve()
+    RAFT_ROOT = Path(FILE.parents[1] / 'src/modules/RAFT')  # RAFT directory
+    if str(RAFT_ROOT) not in sys.path:
+        sys.path.append(str(RAFT_ROOT))  # add RAFT_ROOT to PATH
+    # sys.path.append('/home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/RAFTcore')
     from raft import RAFT
     from utils import flow_viz
     from utils.utils import InputPadder
@@ -102,14 +107,10 @@ def init_flownode():
         parser.add_argument('--small', action='store_true', help='use small model')
         parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
         parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
-        args = parser.parse_args(['--model','/home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
+        args = parser.parse_args(['--model',str(RAFT_ROOT.joinpath('raft-small.pth')),
                                     '--path','',
                                     '--small'])
-        # args.model = '/home/ffil/gaia-ws/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
-        # args.path = ''
-        # args.small = True
-        # args.mixed_precision = False
-        # args.alternate_corr = False
+
         
         print('Initializing RAFT model')
         model_raft = flow_init(args)
@@ -165,10 +166,6 @@ def opticalflowmain():
     flow.size_x = flow_x/img1.shape[1]
     flow.size_y = flow_y/img1.shape[0]
     
-    
-    
-    
-    
     return flow
 
 def opticalflowfunction(img1,img2,boundingbox,savenum):
@@ -195,14 +192,19 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     # computing flow outside the bounding box
     time_init = time.time()
 
-    if USE_RAFT:
-        flow_outside,_,_ = RAFTflow(img1.copy(),img2.copy())
+    if USE_COMP:
+        if USE_RAFT:
+            flow_outside,_,_ = RAFTflow(img1.copy(),img2.copy())
+        else:
+            flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(img1,img2,None) # using defaults for now
+        # print('Took %f seconds' % (time.time() - time_init))
+        flow_inside = flow_outside[y1:y2,x1:x2,:].copy()
+        flow_outside[y1:y2,x1:x2,:] = np.nan
     else:
-        
-        flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(img1,img2,None) # using defaults for now
-    # print('Took %f seconds' % (time.time() - time_init))
-    flow_inside = flow_outside[y1:y2,x1:x2,:].copy()
-    flow_outside[y1:y2,x1:x2,:] = np.nan
+        if USE_RAFT:
+            flow_inside,_,_ = RAFTflow(img1[y1:y2,x1:x2,:].copy(),img2[y1:y2,x1:x2,:].copy())
+        else:
+            flow_inside = cv.optflow.calcOpticalFlowDenseRLOF(img1[y1:y2,x1:x2,:],img2[y1:y2,x1:x2,:],None) # using defaults for now
     # flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::median_skipping])
     # flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::median_skipping])
 
@@ -216,39 +218,42 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     # # filter out if not very white (questionable approach, not likely to be generalizable but ok for now)
     # color_filter = np.mean(img1[y1:y2,x1:x2,:],axis=2) < color_filter_thresh
     # flow_inside[color_filter] = np.nan
+    if USE_COMP:
+        if USE_INPAINTING_COMP:
 
-    if USE_INPAINTING:
+            tmp = time.time()
 
-        tmp = time.time()
-
-        u1 = flow_outside[:,:,0].copy()
-        u2 = flow_outside[:,:,1].copy()
-        rescale = 4
-        u1 = cv.resize(u1,[u1.shape[1]//rescale,u1.shape[0]//rescale])
-        u2 = cv.resize(u2,[u2.shape[1]//rescale,u2.shape[0]//rescale])
-
-
-        u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-        u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-        
-        u1 = cv.resize(u1,[img1.shape[1],img1.shape[0]])
-        u2 = cv.resize(u2,[img1.shape[1],img1.shape[0]])
+            u1 = flow_outside[:,:,0].copy()
+            u2 = flow_outside[:,:,1].copy()
+            rescale = 4
+            u1 = cv.resize(u1,[u1.shape[1]//rescale,u1.shape[0]//rescale])
+            u2 = cv.resize(u2,[u2.shape[1]//rescale,u2.shape[0]//rescale])
 
 
-        print('Inpainting time: %f' % (time.time()-tmp))
+            u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+            u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+            
+            u1 = cv.resize(u1,[img1.shape[1],img1.shape[0]])
+            u2 = cv.resize(u2,[img1.shape[1],img1.shape[0]])
 
 
-        flow_inside[:,:,0] -=u1[y1:y2,x1:x2]
-        flow_inside[:,:,1] -=u2[y1:y2,x1:x2]
-        flow_outside_x = np.nanmean(flow_inside[:,:,0].flatten())
-        flow_outside_y = np.nanmean(flow_inside[:,:,1].flatten())
-    elif USE_OUTSIDE_MEDIAN_COMP:
-        
+            print('Inpainting time: %f' % (time.time()-tmp))
 
-        flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
-        flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
-        flow_inside[:,:,0] -= flow_outside_x
-        flow_inside[:,:,1] -= flow_outside_y
+
+            flow_inside[:,:,0] -=u1[y1:y2,x1:x2]
+            flow_inside[:,:,1] -=u2[y1:y2,x1:x2]
+            flow_outside_x = np.nanmean(flow_inside[:,:,0].flatten())
+            flow_outside_y = np.nanmean(flow_inside[:,:,1].flatten())
+        elif USE_OUTSIDE_MEDIAN_COMP:
+            
+
+            flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
+            flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
+            flow_inside[:,:,0] -= flow_outside_x
+            flow_inside[:,:,1] -= flow_outside_y
+    else:
+        flow_outside_x = 0
+        flow_outside_y = 0
     
     if np.isnan(flow_outside_x):
         flow_outside_x = flow_outside_y = 0
@@ -393,19 +398,23 @@ def RAFTflow(img1,img2):
     return flow,img1,img2
    
 def flow_init(args):
+    global model_raft
     model_raft = torch.nn.DataParallel(RAFT(args))
     model_raft.load_state_dict(torch.load(args.model))
 
     model_raft = model_raft.module
     model_raft.to(DEVICE)
     model_raft.eval()
+    print('Computing flow with dummy images to finish initialize')
+    x,y = np.meshgrid(np.linspace(0,100,640),np.linspace(0,100,480))
+    img1 = np.sum(np.stack((x,y),2),axis=2)
+    img2 = img1+50
+    img1 = cv.cvtColor(img1.astype(np.uint8),cv.COLOR_GRAY2BGR)
+    img2 = cv.cvtColor(img2.astype(np.uint8),cv.COLOR_GRAY2BGR)
+# cv.imshow('stack',np.concatenate((img1,img2),axis=1))
+# cv.waitKey(0)
+    RAFTflow(img1,img2)
     return model_raft
-
-
-
-
-    # take the median values of what is left as the bulk smoke flow direction
-    # result = np.array([np.nanmedian(flow_inside[:,:,0].flatten()),np.nanmedian(flow_inside[:,:,1].flatten())])
 
     
 

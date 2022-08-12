@@ -1,27 +1,44 @@
 #!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
 # license removed for brevity
+from operator import truediv
 from re import sub
 import rospy
 from rospy.client import init_node
 from sensor_msgs.msg import Image
-from vision_msgs.msg import BoundingBox2D
+from vision_msgs.msg import Detection2D
 import numpy as np
 import cv2
 import os
-import PySpin
-import sys
-
+# import PySpin
+import sys, datetime
 import argparse
 from pathlib import Path
+import time
 import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
 
+#--------OPTION TO VIEW DETECTION RESULTS IN REAL_TIME-------------#
+VIEW_IMG=True
+SAVE_IMG = True
+save_format = '.avi'
+#-----------------------------------------------------#
+
+# file saving folder
+username = os.getlogin( )
+tmp = datetime.datetime.now()
+stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day, 
+    tmp.hour, tmp.minute, tmp.second))
+savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/detection/' % (username,stamp) #script cannot create folder, must already exist when run
+os.makedirs(savedir)
+
+
+# YOLO paths and importing
 FILE = Path(__file__).resolve()
 YOLOv5_ROOT = FILE.parents[1] / 'yolov5_smoke'  # YOLOv5 root directory
 if str(YOLOv5_ROOT) not in sys.path:
     sys.path.append(str(YOLOv5_ROOT))  # add YOLOv5_ROOT to PATH
 YOLOv5_ROOT = Path(os.path.relpath(YOLOv5_ROOT, Path.cwd()))  # relative
-
 from models.experimental import attempt_load
 from utils.datasets import LoadImages, LoadStreams
 from utils.general import check_img_size, non_max_suppression, scale_coords, xyxy2xywh
@@ -29,82 +46,134 @@ from utils.torch_utils import select_device
 from utils.plots import Annotator, colors
 from utils.augmentations import letterbox
 
-import time
+
 
 #global publisher and boundingbox
-global pub,box
+global pub,box, video, timelog
 #global initialized variables for detection model
 global imgsz, model, device, names
 
-
-#--------OPTION TO VIEW DETECTION RESULTS IN REAL_TIME-------------#
-VIEW_IMG=True
-#-----------------------------------------------------#
+# labeling text on image
+BLACK = (265,265,265)
+font = cv2.FONT_HERSHEY_SIMPLEX
+font_size = 1
+font_color = BLACK
+font_thickness = 2
 
 def imagecallback(img):
-    global pub,box
+
+    global pub,box,video,timelog
     global imgsz, model, device, names
+    box = Detection2D()
+    # print(img.header.stamp)
+    # print('Time before running detection')
+    # print('Image %d' % img.header.seq)
+    # print(img.header.stamp)
 
-    if rospy.Time.now() - img.header.stamp > rospy.Duration(.25):
-        print("dropping old image\n")
-        return
+    # adding to time stamp log
+    timelog.write('%d,%f\n' % (img.header.seq,time.time()))
 
-    box = BoundingBox2D()
-    start = time.time()
-    
+    # converting image to numpy array
     img_numpy = np.frombuffer(img.data,dtype=np.uint8).reshape(img.height,img.width,-1)
-    
 
-    
-    #TODO: Run network, set bounding box parameters
-    car = detect_car(img_numpy,imgsz,model,device,names)
-    if len(car) != 0 and car[0].confidence > 0.5:
-        print(car[0].bounding_box, car[0].confidence)
-
-        box.center.x = car[0].bounding_box[0]
-        box.center.y = car[0].bounding_box[1]
-        box.center.theta = 0
-        box.size_x = car[0].bounding_box[2]
-        box.size_y = car[0].bounding_box[3]
+    if rospy.Time.now() - img.header.stamp > rospy.Duration(.5):
+        # print("DetectionNode: dropping old image from detection\n")
+        # text_to_image = 'skipped'
+        return
+    else:
+        # print('DetectionNode: Running detection inference')
+        smoke,img_numpy = detect_smoke(img_numpy,imgsz,model,device,names,savenum=img.header.seq)
+        
+        # print(img.header)
+        # print('Printing time stamps at exchange in detection')
+        # print(img.header.stamp)
+        box.header.seq = img.header.seq
+        box.header.stamp = img.header.stamp
+        box.header.frame_id = ''
+        # print(box.header.stamp)
+        box.source_img = img
+        if len(smoke) != 0 and smoke[0].confidence > 0.4:
+            # print(smoke[0].bounding_box, smoke[0].confidence)
+            box.bbox.center.x = smoke[0].bounding_box[0]
+            box.bbox.center.y = smoke[0].bounding_box[1]
+            box.bbox.center.theta = 0
+            box.bbox.size_x = smoke[0].bounding_box[2]
+            box.bbox.size_y = smoke[0].bounding_box[3]
+        else:
+            box.bbox.center.x = -1
+            box.bbox.center.y = -1
+            box.bbox.center.theta = -1
+            box.bbox.size_x = -1
+            box.bbox.size_y = -1
         pub.publish(box)
-    end = time.time()
+        text_to_image = 'processed'
+        # print('Time after running detection')
+        # print('Image %d' % box.source_img.header.seq)
+        # print(box.source_img.header.stamp)
+        
+        # end = time.time()
+        # print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
+        img_numpy = cv2.putText(img_numpy,text_to_image,(10,30),font, font_size, font_color, font_thickness, cv2.LINE_AA)
+    # viewing/saving images
+    savenum=img.header.seq
     
-    # #image test code
-    # if VIEW_IMG:
-    #     cv2.imshow('image window',img_numpy)
-    #     cv2.waitKey(0)
-    
-    print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
+    if SAVE_IMG:
+        if save_format=='.raw':
+            fid = open(savedir+'Detection-%06.0f.raw' % savenum,'wb')
+            fid.write(img_numpy.flatten())
+            fid.close()
+        elif save_format == '.avi':
+            video.write(img_numpy)
+        else:
+            cv2.imwrite(savedir+'Detection-%06.0f.jpg' % savenum,img_numpy)
+    if VIEW_IMG:
+        # im_with_boxes = annotator.result()
+        cv2.imshow('gopro', img_numpy)
+        cv2.waitKey(1)  # 1 millisecond
 
 def init_detection_node():
-    global pub,box
-    pub = rospy.Publisher('/gaia/bounding_box', BoundingBox2D, queue_size=1)
-    box = BoundingBox2D()
+    global pub,box,video,timelog
+    pub = rospy.Publisher('/gaia/bounding_box', Detection2D, queue_size=1)
+    box = Detection2D()
 
     # Initialize detection code before subscriber because this takes some time
     global imgsz, model, device, names
-    print('Initializing model')
+    print('Initializing YOLO model')
+    # weights=YOLOv5_ROOT / 'yolov5s.pt'
+    # weights=YOLOv5_ROOT / 'yolov5s.pt'
+    #weights=YOLOv5_ROOT / 'smoke.pt'
+    # weights=YOLOv5_ROOT / 'realsmoke_3aug_betterBalance.pt'
+    # weights=YOLOv5_ROOT / 'best_2022-04-26.pt'
+    # weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withSmokeStack_invertAll_50epochs.pt'
+    # weights=YOLOv5_ROOT / 'smoke400_100empty_H-M-L_color_withUMore.pt'
+    
+    
+    # weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
     weights=YOLOv5_ROOT / 'yolov5s.pt'
-    # weights=YOLOv5_ROOT / 'smoke.pt'
     model, device, names = detect_init(weights)
-    imgsz = [640,640] # scaled image size to run inference on
+    imgsz = [448,448] # scaled image size to run inference on
     model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
     
-    
-    # print('Loading image')
-    # img_path = 'traffic.jpeg'
-    # img_path = 'smoke_stack.jpeg'
-    # img_path = str(YOLOv5_ROOT / 'data/images/zidane.jpg')
-    # img = cv2.imread(img_path)
+    # initializing video file
+    if save_format=='.avi':
+        codec = cv2.VideoWriter_fourcc('M','J','P','G')
+        video = cv2.VideoWriter(savedir+'Detection'+save_format,
+            fourcc=codec,
+            fps=30,
+            frameSize = (640,480)) # this size is specific to GoPro
 
-    # End detection initialization
+    # initializing timelog
+    timelog = open(savedir+'Timestamps.txt','w')
+    timelog.write('FrameID,Timestamp\n')
 
-    rospy.Subscriber('/camera/image', Image, imagecallback)
+    # initializing node
     rospy.init_node('detectionnode', anonymous=False)
+    rospy.Subscriber('/camera/image', Image, imagecallback)
+    
 
     rospy.spin()
 
-def detect_car(img0,imgsz,model,device,names):
+def detect_smoke(img0,imgsz,model,device,names,savenum):
     
     # weights=YOLOv5_ROOT / 'yolov5s.pt'  # model.pt path(s)
     # source=YOLOv5_ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
@@ -148,7 +217,7 @@ def detect_car(img0,imgsz,model,device,names):
     img = img / 255.0  # 0 - 255 to 0.0 - 1.0
     if len(img.shape) == 3:
         img = img[None]  # expand for batch dim
-    # print(img.shape)
+    
     pred = model(img, augment=augment, visualize=visualize)[0]
     #NMS
     pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
@@ -180,22 +249,43 @@ def detect_car(img0,imgsz,model,device,names):
                 # adding object to list
                 obj.append(DetectedObject(np.array(xywh),confidence,object_class))
 
+        im_with_boxes = annotator.result()
         
-        if VIEW_IMG:
-            im_with_boxes = annotator.result()
-            cv2.imshow('detection results', im_with_boxes)
-            cv2.waitKey(1)  # 1 millisecond
+        
+        # if VIEW_IMG:
+        #     # im_with_boxes = annotator.result()
+        #     cv2.imshow('gopro', im_with_boxes)
+        #     cv2.waitKey(1)  # 1 millisecond
 
 
-
-    #------return car with max confidence------------#
-    bestcar = []
+    #------return smoke with max confidence------------#
+    bestsmoke = []
     bestconf = 0
     for ob in obj:
-        if ob.object_class == 'car' and ob.confidence > bestconf:
-            bestcar = [ob]
-            bestconf = ob.confidence
-    return bestcar
+        if ob.object_class == 'smoke' and ob.confidence > bestconf:
+            bestsmoke = [ob]
+            bestconf = ob.confidence  
+    # if SAVE_IMG:
+    #     if save_format=='.raw':
+    #         fid = open(savedir+'Detection-%06.0f.raw' % savenum,'wb')
+    #         fid.write(im_with_boxes.flatten())
+    #         fid.close()
+    #     elif save_format == '.avi':
+    #         if savenum==0:
+    #             codec = cv2.VideoWriter_fourcc('M','J','P','G')
+    #             video = cv2.VideoWriter('Detection'+save_format,
+    #                 fourcc=codec,
+    #                 fps=30,
+    #                 frameSize = (im_with_boxes.shape[1],im_with_boxes.shape[0]))
+    #         video.write(im_with_boxes)
+    #     else:
+    #         cv2.imwrite(savedir+'Detection-%06.0f.jpg' % savenum,im_with_boxes)
+    # if VIEW_IMG:
+    #     # im_with_boxes = annotator.result()
+    #     cv2.imshow('gopro', im_with_boxes)
+    #     cv2.waitKey(1)  # 1 millisecond
+    # return bestsmoke
+    return bestsmoke,im_with_boxes
 
 ## methods from yolov5_smoke/detect_fun.py
 def detect_init(weights=YOLOv5_ROOT / 'yolov5s.pt'):
@@ -219,3 +309,4 @@ if __name__ == '__main__':
         init_detection_node()
     except rospy.ROSInterruptException:
         pass
+
