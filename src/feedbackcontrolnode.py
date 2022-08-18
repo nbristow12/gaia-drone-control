@@ -154,7 +154,7 @@ def flow_callback(flow):
         print('doing optical flow feedback')
         horizontalerror = -flow.size_x * flow_gain
         verticalerror = flow.size_y * flow_gain
-        if not above_object:
+        if not above_object: # this should never end up being called normally, just for debugging optical flow in side-view
             # pitch
             pitchdelta = verticalerror * gimbal_pitch_gain
             pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
@@ -235,20 +235,24 @@ def dofeedbackcontrol():
 
             elif hybrid_mode:
                 # determine if above object based on pitch
-                # if not above_object: # once entered above mode, cannot go back
-                #                     #  if this isn't done, then the transition between modes is really rough
-                #     print('Hybrid mode: Approach phase')
-                #     if pitchcommand > pitch_thresh and alt > alt_min:
-                #         above_object=True
+                if not above_object: # once entered above mode, cannot go back
+                                    #  if this isn't done, then the transition between modes is really rough
+                    if print_mode:
+                        print('Hybrid mode: Approach phase')
+                    if pitchcommand > pitch_thresh and alt > alt_min:
+                        above_object=True
                         
-                #     else:
+                    else:
 
-                #         above_object=False
+                        above_object=False
                         
-                # else:
-                #     print('Hybrid mode: Above object')
-                above_object=False
-                OPT_FLOW = True
+                else:
+                    if print_mode:
+                        print('Hybrid mode: Above object')
+                #------FOR DEBUGGING------#
+                # above_object=False
+                # OPT_FLOW = True
+                #-------------------------#
                 # lateral movement (hspeed > 0 moves right)
                 if OPT_FLOW:
                     hspeed += -horizontalerror * traverse_gain
