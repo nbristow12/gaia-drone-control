@@ -12,11 +12,12 @@ import cv2
 from goprocam import GoProCamera
 from goprocam import constants
 import queue, threading
+from pathlib import Path
 
-# sys.path.append("goproapi")
+sys.path.append("goproapi")
 
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
-VIEW_IMG=False
+VIEW_IMG=True
 save_image = True
 save_format = '.avi'
 #-----------------------------------------------------#
@@ -35,7 +36,7 @@ os.makedirs(savedir)
 #seems to find device automatically if connected? Why don't we do this?
 serialstring = 'DeviceSerialNumber'
 #serialstring = '18285036'
-
+# /home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/goproapi/gopro_keepalive.py
 # bufferless VideoCapture
 class VideoCapture:
 
@@ -51,7 +52,8 @@ class VideoCapture:
         while True:
             ret, frame = self.cap.read()
             if not ret:
-                break
+                # break
+                continue
             if not self.q.empty():
                 try:
                     self.q.get_nowait()   # discard previous (unprocessed) frame
@@ -82,6 +84,7 @@ def publishimages():
     :rtype: bool
     """
 
+    capture_init()
 
     gpCam = GoProCamera.GoPro()
     #gpCam.gpControlSet(constants.Stream.BIT_RATE, constants.Stream.BitRate.B2_4Mbps)
@@ -230,6 +233,18 @@ def publishimages():
 #         )
 #     )
 #     return cmd_init+cmd_main
+
+def capture_init():
+    # starts gopro streaming in background
+    
+    FILE = Path(__file__).resolve()
+    goproapi = Path(FILE.parents[1] / 'src/goproapi')  # gopro functions directory
+    cmd = str(goproapi.joinpath('gopro_keepalive.py'))
+    # subprocess.call(['python3',cmd])
+    with open(os.devnull, 'w') as fp:
+        output = subprocess.Popen('python3 ' + cmd, stdout=fp,shell=True)
+
+    return
 
 if __name__ == '__main__':
     try:
