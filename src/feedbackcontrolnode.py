@@ -10,7 +10,9 @@ from math import atan2
 import os
 import sys
 import numpy as np
-
+import datetime, time
+from pathlib import Path
+# import pandas as pd
 global horizontalerror, verticalerror, sizeerror
 time_lastbox = None
 
@@ -19,7 +21,19 @@ OPT_FLOW_MASTER = True # true means optical flow is used
 top_down_mode = False  # different operating mode for motion if the drone is far above the feature
 hybrid_mode = True # starts horizontal, moves toward object, then once above it, moves into the top-down-mode
 yaw_mode = True # whether or not to yaw the entire drone during motion
+USE_PITCH_ERROR = True
 #---------------------------------------------------#
+
+username = os.getlogin( )
+tmp = datetime.datetime.now()
+stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day, 
+    tmp.hour, tmp.minute, tmp.second))
+savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/data/' % (username,stamp) 
+os.makedirs(savedir)
+fid = open(Path(savedir).joinpath('Feedbackdata.txt'),'w')
+fid.write('Timestamp,Alt,MoveUp,AboveObject,Pitch,Size_error,Flow_x,Flow_y,Vspeed,Fspeed,Hspeed\n')
+
 
 print_pitch = True
 print_size_error = False
@@ -29,7 +43,7 @@ print_flow=True
 # print_
 # bounding box options
 setpoint_size = 0.6 #fraction of frame that should be filled by target. Largest axis (height or width) used.
-setpoint_size_approach = 1 # only relevant for hybrid mode, for getting close to target
+setpoint_size_approach = 0.5 # only relevant for hybrid mode, for getting close to target
 # deadzone_size = 0.0 #deadzone on controlling size
 # deadzone_position = 0.0 #deadzone on controlling position in frame
 
@@ -47,6 +61,9 @@ traverse_gain = 1.5
 flow_gain = 30
 # vertical_gain = 3 # half of the size_gain value
 vertical_gain = 1.5 # half of the size_gain value
+# new gain for error term for pitch
+pitcherror_gain = 0.5 # half of what the gain is for size
+pitcherror_forward_gain = 1 # needs to be tuned
 
 # limit parameters
 yaw_center = 1500
@@ -69,6 +86,7 @@ sizeerror=0
 vspeed = 0 # positive is upwards
 hspeed = 0 # positive is to the right
 fspeed = 0 # positive is forwards
+flow_x = flow_y = 0
 yaw = 0
 move_up = False # initialized value
 alt = 10 # initialized value outside the safegaurd
@@ -125,8 +143,12 @@ def boundingbox_callback(box):
         time_lastbox = rospy.Time.now()
         if not above_object: # different bbox size desired for approach and above stages for hybrid mode
             sizeerror = setpoint_size_approach - max(box.bbox.size_x, box.bbox.size_y) # if box is smaller than setpoit, error is positive
+            if USE_PITCH_ERROR:
+                # this should keep the drone moving forward even when the fov is filled with the object, but needs to have a low gain
+                sizeerror += (pitch_down - pitchcommand)/(pitch_down - pitch_up)
         else:
             sizeerror = setpoint_size - max(box.bbox.size_x, box.bbox.size_y) # if box is smaller than setpoit, error is positive
+        
         if not OPT_FLOW:
             horizontalerror = .5-box.bbox.center.x # if box center is on LHS of image, error is positive
             verticalerror = .5-box.bbox.center.y # if box center is on upper half of image, error is positive 
@@ -149,9 +171,13 @@ def boundingbox_callback(box):
 def flow_callback(flow):
     global horizontalerror, verticalerror,time_lastbox
     global pitchcommand, yawcommand
+    global flow_x,flow_y
     # adjust the feedback error using the optical flow
     if OPT_FLOW:
         print('doing optical flow feedback')
+        flow_x = flow.size_x
+        flow_y = flow.size_y
+        OPT_COMPUTE_FLAG = True
         horizontalerror = -flow.size_x * flow_gain
         verticalerror = flow.size_y * flow_gain
         if not above_object: # this should never end up being called normally, just for debugging optical flow in side-view
@@ -174,8 +200,9 @@ def dofeedbackcontrol():
     global pitchcommand, yawcommand
     global above_object
     global yaw_mode,OPT_FLOW
-    global move_up
+    global move_up, USE_PITCH_ERROR
     global hspeed,vspeed,fspeed
+    global horizontalerror,verticalerror
     #Initialize publishers/subscribers/node
     print("Initializing feedback node...")
     rospy.Subscriber('/gaia/bounding_box', Detection2D, boundingbox_callback)
@@ -210,7 +237,7 @@ def dofeedbackcontrol():
             if alt < alt_flow and above_object:
                 if OPT_FLOW_MASTER:
                     OPT_FLOW = True # switch to optical flow feedback control mode
-
+                    horizontalerror = verticalerror = 0
             if top_down_mode:
                 if alt < alt_flow and OPT_FLOW_MASTER:
                     OPT_FLOW= True
@@ -241,7 +268,7 @@ def dofeedbackcontrol():
                         print('Hybrid mode: Approach phase')
                     if pitchcommand > pitch_thresh and alt > alt_min:
                         above_object=True
-                        
+                        USE_PITCH_ERROR = False # turning this off once moving downward
                     else:
 
                         above_object=False
@@ -260,12 +287,15 @@ def dofeedbackcontrol():
                     hspeed = -horizontalerror * traverse_gain
                 # forward movement   (fspeed > 0 move backward)
                 if above_object:
-                    if OPT_FLOW:
+                    if OPT_FLOW and OPT_COMPUTE_FLAG:
                         fspeed += verticalerror * traverse_gain
                     else:
                         fspeed = verticalerror * traverse_gain
                 else:
                     fspeed = sizeerror * size_gain
+                    if USE_PITCH_ERROR:
+                        # slow down the forward speed when the gimbal starts pitching down
+                        fspeed *= (pitch_down - pitchcommand)/(pitch_down - pitch_up) * pitcherror_forward_gain
                 # vertical movement depending on the minimum altitude safeguard
                 # vspeed > 0 moves upward
                 if move_up:
@@ -287,9 +317,9 @@ def dofeedbackcontrol():
                 else:
                     yawrate = ((yawcommand - 1500)/1000)*yaw_gain*0.75
 
-                if print_mode:
-                    print('Above object:')
-                    print(above_object)
+                # if print_mode:
+                #     print('Above object:')
+                #     print(above_object)
 
             else: # nik's old version
                 # set vertical motion to zero
@@ -304,7 +334,7 @@ def dofeedbackcontrol():
                 yawrate = ((yawcommand - 1500)/1000)*yaw_gain*.75 #.75 multiplier included here for now, should be pulled out to gain later
                 hspeed = -horizontalerror * traverse_gain # this only gets used if yaw mode is off
 
-            #------- for debugging--------#
+            #-------for debugging--------#
             # yawcommand = yaw_center
             # pitchcommand = pitch_45
             #---------------------------------#
@@ -317,6 +347,8 @@ def dofeedbackcontrol():
             yawcommand = min(max(yawcommand,1000),2000)
             pitchcommand = min(max(pitchcommand,1000),2000)
             #assign to messages, publish
+            fid.write('%s,%f,%s,%s,%f,%f,%f,%f,%f,%f,%f\n' % 
+                (time.time(),alt,str(move_up),str(above_object),pitchcommand,sizeerror,flow_x,flow_y,vspeed,fspeed,hspeed))
             if yaw_mode:
                 twistmsg.linear.x = math.cos(yaw)*fspeed
                 twistmsg.linear.y = math.sin(yaw)*fspeed
@@ -339,6 +371,8 @@ def dofeedbackcontrol():
             if not above_object:
                 pitchcommand = pitch_init 
                 yawcommand = yaw_center
+                OPT_FLOW = False # turn off teh optical flow mode
+                OPT_COMPUTE_FLAG = False
                 if (rospy.Time.now() - time_lastbox < rospy.Duration(10)):
                     rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
                     rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7

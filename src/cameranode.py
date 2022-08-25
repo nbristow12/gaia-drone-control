@@ -13,7 +13,6 @@ from goprocam import GoProCamera
 from goprocam import constants
 import queue, threading
 from pathlib import Path
-
 sys.path.append("goproapi")
 
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
@@ -150,6 +149,8 @@ def publishimages():
                     if VIEW_IMG:
                         cv2.imshow('gopro',img_raw)
                         cv2.waitKey(1)
+                        # imgtmp = PILImage.fromarray(img_raw,'RGB')
+                        # imgtmp.show()
 
                     #assign image to ros structure
                     # img.data = image_numpy.flatten().tolist()

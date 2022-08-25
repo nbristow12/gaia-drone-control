@@ -11,6 +11,7 @@ import os, datetime, time
 
 #------------OPTION TO TURN OFF OPTICAL FLOW-------#
 OPT_FLOW_OFF = False
+UPSCALE = False
 #---------------------------------------------------#
 
 #--------OPTION TO VIEW FLOW RESULTS IN REAL_TIME-------------#
@@ -398,7 +399,10 @@ def RAFTflow(img1,img2):
     global model_raft
     # print('Image size before pad:')
     # print(img1.shape)
-
+    if UPSCALE:
+        img1 = cv.resize(img1,(img1.shape[1]*2,img1.shape[0]*2))
+        img2 = cv.resize(img2,(img1.shape[1]*2,img1.shape[0]*2))
+        
     with torch.no_grad():
 
         img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
@@ -416,7 +420,10 @@ def RAFTflow(img1,img2):
         # print(flow.shape)
         img1 = img1[0].permute(1,2,0).cpu().numpy()
         img2 = img2[0].permute(1,2,0).cpu().numpy()
-    return flow,img1,img2
+    if UPSCALE:
+        return flow[::2,::2,:]/2,img1[::2,::2,:],img2[::2,::2,:]
+    else:
+        return flow,img1,img2
    
 def flow_init(args):
     global model_raft
