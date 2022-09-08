@@ -175,7 +175,7 @@ def publishimages():
                                 codec = cv2.VideoWriter_fourcc('M','J','P','G')
                                 video = cv2.VideoWriter(savedir+'Acquisition'+save_format,
                                     fourcc=codec,
-                                    fps=30,
+                                    fps=10,
                                     frameSize = (img_raw.shape[1],img_raw.shape[0]))
                             video.write(img_raw)
                         else:

@@ -18,7 +18,7 @@ import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
 
 #------------------------OPTIONS---------------------#
-target_name = 'person' # options: smoke,car,person
+target_name = 'smoke' # options: smoke,car,person
 max_delay = 0.5 # [seconds] delay between last detectiona nd current image after which to just drop images to catch up
 conf_thres=0.4  # confidence threshold
 iou_thres=0.45  # NMS IOU threshold
@@ -157,7 +157,7 @@ def init_detection_node():
         codec = cv2.VideoWriter_fourcc('M','J','P','G')
         video = cv2.VideoWriter(savedir+'Detection'+save_format,
             fourcc=codec,
-            fps=30,
+            fps=10,
             frameSize = (640,480)) # this size is specific to GoPro
 
     # initializing timelog
