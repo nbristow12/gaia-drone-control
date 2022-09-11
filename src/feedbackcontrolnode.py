@@ -7,7 +7,7 @@ from geometry_msgs.msg import PoseStamped
 from mavros_msgs.msg import OverrideRCIn
 import math
 from math import atan2
-import os
+import os,re
 import sys
 import numpy as np
 import datetime, time
@@ -24,14 +24,24 @@ yaw_mode = True # whether or not to yaw the entire drone during motion
 USE_PITCH_ERROR = True
 #---------------------------------------------------#
 
+# create saving directory
 username = os.getlogin( )
 tmp = datetime.datetime.now()
-stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
-    (tmp.year, tmp.month, tmp.day, 
-    tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/data/' % (username,stamp) 
-os.makedirs(savedir)
-fid = open(Path(savedir).joinpath('Feedbackdata.txt'),'w')
+stamp = ("%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day))
+maindir = Path('/home/%s/1FeedbackControl' % username)
+runs_today = list(maindir.glob('*%s*_fc-data' % stamp))
+if runs_today:
+    runs_today = [str(name) for name in runs_today]
+    regex = 'run\d\d'
+    runs_today=re.findall(regex,''.join(runs_today))
+    runs_today = np.array([int(name[-2:]) for name in runs_today])
+    new_run_num = max(runs_today)+1
+else:
+    new_run_num = 1
+savedir = maindir.joinpath('%s_run%02d_fc-data' % (stamp,new_run_num))
+os.makedirs(savedir)  
+fid = open(savedir.joinpath('Feedbackdata.csv'),'w')
 fid.write('Timestamp,Alt,GPS_x,GPS_y,MoveUp,AboveObject,Pitch,Size_error,OptFlow_On,Flow_x,Flow_y,Vspeed,Fspeed,Hspeed\n')
 
 

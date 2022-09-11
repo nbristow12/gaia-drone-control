@@ -22,15 +22,23 @@ save_format = '.avi'
 #-----------------------------------------------------#
 
 
-
-
+# create saving directory
 username = os.getlogin( )
 tmp = datetime.datetime.now()
-stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
-    (tmp.year, tmp.month, tmp.day, 
-    tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/camera/' % (username,stamp) #script cannot create folder, must already exist when run
-os.makedirs(savedir)
+stamp = ("%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day))
+maindir = Path('/home/%s/1FeedbackControl' % username)
+runs_today = list(maindir.glob('*%s*_camera' % stamp))
+if runs_today:
+    runs_today = [str(name) for name in runs_today]
+    regex = 'run\d\d'
+    runs_today=re.findall(regex,''.join(runs_today))
+    runs_today = np.array([int(name[-2:]) for name in runs_today])
+    new_run_num = max(runs_today)+1
+else:
+    new_run_num = 1
+savedir = maindir.joinpath('%s_run%02d_camera' % (stamp,new_run_num))
+os.makedirs(savedir)  
 
 #seems to find device automatically if connected? Why don't we do this?
 serialstring = 'DeviceSerialNumber'
@@ -91,7 +99,7 @@ def publishimages():
     device_serial_number = False
 
     # initializing timelog
-    timelog = open(savedir+'Timestamps.txt','w')
+    timelog = open(savedir.joinpath('Timestamps.csv'),'w')
     timelog.write('FrameID,Timestamp\n')
 
     try:
@@ -161,25 +169,25 @@ def publishimages():
                     if save_image:
                         # Create a unique filename
                         if device_serial_number:
-                            filename = savedir + ('Acquisition-%s-%06.0f' % (device_serial_number, i))
+                            filename = savedir.joinpath('Acquisition-%s-%06.0f' % (device_serial_number, i))
                         else:  # if serial number is empty
-                            filename = savedir + ('Acquisition-%06.0f' % i)
+                            filename = savedir.joinpath('Acquisition-%06.0f' % i)
 
 
                         if save_format=='.raw':
-                            fid = open(filename+save_format,'wb')
+                            fid = open(str(filename)+save_format,'wb')
                             fid.write(img_raw.flatten())
                             fid.close()
                         elif save_format == '.avi':
                             if i==1:
                                 codec = cv2.VideoWriter_fourcc('M','J','P','G')
-                                video = cv2.VideoWriter(savedir+'Acquisition'+save_format,
+                                video = cv2.VideoWriter(str(savedir.joinpath('Acquisition'+save_format)),
                                     fourcc=codec,
                                     fps=10,
                                     frameSize = (img_raw.shape[1],img_raw.shape[0]))
                             video.write(img_raw)
                         else:
-                            cv2.imwrite(filename+save_format,img_raw)
+                            cv2.imwrite(str(filename)+save_format,img_raw)
 
             except Exception as e:       
                 print('Error: %s' % e)

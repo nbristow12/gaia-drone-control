@@ -8,7 +8,7 @@ from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2D
 import numpy as np
 import cv2
-import os
+import os, re
 # import PySpin
 import sys, datetime
 import argparse
@@ -28,15 +28,23 @@ SAVE_IMG = True
 save_format = '.avi'
 #-----------------------------------------------------#
 
-# file saving folder
+# create saving directory
 username = os.getlogin( )
 tmp = datetime.datetime.now()
-stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
-    (tmp.year, tmp.month, tmp.day, 
-    tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/detection/' % (username,stamp) #script cannot create folder, must already exist when run
-os.makedirs(savedir)
-
+stamp = ("%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day))
+maindir = Path('/home/%s/1FeedbackControl' % username)
+runs_today = list(maindir.glob('*%s*_detection' % stamp))
+if runs_today:
+    runs_today = [str(name) for name in runs_today]
+    regex = 'run\d\d'
+    runs_today=re.findall(regex,''.join(runs_today))
+    runs_today = np.array([int(name[-2:]) for name in runs_today])
+    new_run_num = max(runs_today)+1
+else:
+    new_run_num = 1
+savedir = maindir.joinpath('%s_run%02d_detection' % (stamp,new_run_num))
+os.makedirs(savedir)  
 
 # YOLO paths and importing
 FILE = Path(__file__).resolve()
@@ -74,8 +82,7 @@ def imagecallback(img):
     # print('Image %d' % img.header.seq)
     # print(img.header.stamp)
 
-    # adding to time stamp log
-    timelog.write('%d,%f\n' % (img.header.seq,time.time()))
+    time_stamp = time.time()
 
     # converting image to numpy array
     img_numpy = np.frombuffer(img.data,dtype=np.uint8).reshape(img.height,img.width,-1)
@@ -118,18 +125,26 @@ def imagecallback(img):
         # end = time.time()
         # print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
         img_numpy = cv2.putText(img_numpy,text_to_image,(10,30),font, font_size, font_color, font_thickness, cv2.LINE_AA)
+
+        # adding to time stamp log
+        timelog.write('%d,%f,%f,%f,%f,%f\n' % (img.header.seq,
+                                               time_stamp,
+                                               box.bbox.center.x,
+                                               box.bbox.center.y,
+                                               box.bbox.sizex,
+                                               box.bbox.size_y))
     # viewing/saving images
     savenum=img.header.seq
     
     if SAVE_IMG:
         if save_format=='.raw':
-            fid = open(savedir+'Detection-%06.0f.raw' % savenum,'wb')
+            fid = open(savedir.joinpath('Detection-%06.0f.raw' % savenum),'wb')
             fid.write(img_numpy.flatten())
             fid.close()
         elif save_format == '.avi':
             video.write(img_numpy)
         else:
-            cv2.imwrite(savedir+'Detection-%06.0f.jpg' % savenum,img_numpy)
+            cv2.imwrite(str(savedir.joinpath('Detection-%06.0f.jpg' % savenum),img_numpy))
     if VIEW_IMG:
         # im_with_boxes = annotator.result()
         cv2.imshow('gopro', img_numpy)
@@ -155,14 +170,14 @@ def init_detection_node():
     # initializing video file
     if save_format=='.avi':
         codec = cv2.VideoWriter_fourcc('M','J','P','G')
-        video = cv2.VideoWriter(savedir+'Detection'+save_format,
+        video = cv2.VideoWriter(str(savedir.joinpath('Detection'+save_format)),
             fourcc=codec,
             fps=10,
             frameSize = (640,480)) # this size is specific to GoPro
 
     # initializing timelog
-    timelog = open(savedir+'Timestamps.txt','w')
-    timelog.write('FrameID,Timestamp\n')
+    timelog = open(savedir.joinpath('Metadata.csv'),'w')
+    timelog.write('FrameID,Timestamp,Center_x,Center_y,Width,Height\n')
 
     # initializing node
     rospy.init_node('detectionnode', anonymous=False)
@@ -278,6 +293,7 @@ class DetectedObject():
 
 
 if __name__ == '__main__':
+
     try:
         init_detection_node()
     except rospy.ROSInterruptException:

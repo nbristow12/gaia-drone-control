@@ -47,13 +47,24 @@ if USE_RAFT:
     import argparse
 
 
+# create saving directory
 username = os.getlogin( )
 tmp = datetime.datetime.now()
-stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
-    (tmp.year, tmp.month, tmp.day, 
-    tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/flow/' % (username,stamp) 
-os.makedirs(savedir)
+stamp = ("%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day))
+maindir = Path('/home/%s/1FeedbackControl' % username)
+runs_today = list(maindir.glob('*%s*_flow' % stamp))
+if runs_today:
+    runs_today = [str(name) for name in runs_today]
+    regex = 'run\d\d'
+    runs_today=re.findall(regex,''.join(runs_today))
+    runs_today = np.array([int(name[-2:]) for name in runs_today])
+    new_run_num = max(runs_today)+1
+else:
+    new_run_num = 1
+savedir = maindir.joinpath('%s_run%02d_flow' % (stamp,new_run_num))
+os.makedirs(savedir) 
+
 
 global flowpub,flow,model_raft
 
@@ -159,7 +170,6 @@ def opticalflowmain():
     
     boundingbox_pixels = [yy-h//2, yy+h//2, xx-w//2, xx+w//2]
     
-    # savename = savedir+'OpticalFlow-%06.0f.jpg' % 
     # run optical flow analysis to get single vector
     flow_x,flow_y = opticalflowfunction(img1,img2,boundingbox_pixels,savenum=datalist[0].source_img.header.seq)
 
@@ -384,9 +394,15 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
         
     if SAVE_FLOW:
         t1 = time.time()
-        savename = savedir+'OpticalFlow-%06.0f.jpg' % savenum
-        cv.imwrite(savename,tmp)
-        np.savez((savedir+'OpticalFlow-%06.0f' % savenum),flow_outside_x,flow_outside_y,flow_inside,boxflow_x,boxflow_y)
+        savename = savedir.joinpath('OpticalFlow-%06.0f.jpg' % savenum)
+        cv.imwrite(str(savename),tmp)
+        np.savez(savedir.joinpath('OpticalFlow-%06.0f' % savenum),
+                                    flow_outside_x=flow_outside_x,
+                                    flow_outside_y=flow_outside_y,
+                                    flow_inside=flow_inside,
+                                    boxflow_x=boxflow_x,
+                                    boxflow_y=boxflow_y,
+                                    bbox=[x1,x2,y1,y2])
         t2 = time.time()
         # print('Optical flow saving time %f' % (t2-t1))
         # if VIEW_IMG:

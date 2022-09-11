@@ -1,3 +1,8 @@
+"""this script re-runs both object detection and optical flow on a raw camera video, 
+    in teh same way as it was run, except without any skipping,
+    and outputs into a single video file
+"""
+
 # %% import packages
 
 from ast import increment_lineno
@@ -11,26 +16,13 @@ import sys, os, time
 # from scipy import interpolate
 import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
-
+if torch.cuda.is_available():
+    DEVICE='cuda'
+else:
+    DEVICE='cpu'
+    
 FILE = Path(__file__).resolve()
-print(FILE)
-#--------OPTION FOR RAFT OPTICAL FLOW------------#
-USE_RAFT=True # also option to save image of output
-USE_OUTSIDE_MEDIAN_COMP = False
-USE_INPAINTING = True
-USE_FILTER_FLOW = False
-USE_FILTER_COLOR = True
-USE_HOMOGRAPHY = False
-USE_UNCERTAINTY = True
-USE_MIN_VECTORS_FILTER = True
-
-#-----------------------------------------------------#
-
-if USE_HOMOGRAPHY: USE_OUTSIDE_MEDIAN_COMP=False
-
-
 # YOLO paths and importing
-
 YOLOv5_ROOT = FILE.parents[1] / 'src/modules/yolov5'  # YOLOv5 root directory
 if str(YOLOv5_ROOT) not in sys.path:
     sys.path.append(str(YOLOv5_ROOT))  # add YOLOv5_ROOT to PATH
@@ -42,8 +34,23 @@ from utils.torch_utils import select_device
 from utils.plots import Annotator, colors
 from utils.augmentations import letterbox
 
+#--------OPTION FOR RAFT OPTICAL FLOW------------#
+USE_RAFT=True # also option to save image of output
+USE_COMP = False
+USE_OUTSIDE_MEDIAN_COMP = False
+USE_INPAINTING = True
+USE_FILTER_FLOW = False
+USE_FILTER_COLOR = True
+USE_HOMOGRAPHY = False
+USE_UNCERTAINTY = False
+USE_MIN_VECTORS_FILTER = False
+#-----------------------------------------------------#
+if USE_HOMOGRAPHY: USE_OUTSIDE_MEDIAN_COMP=False
+SAVE_VIDEO = True
+
+
+
 if USE_RAFT:
-    DEVICE = 'cuda'
     RAFT_ROOT = Path(FILE.parents[1] / 'src/modules/RAFT')  # RAFT directory
     print(RAFT_ROOT)
     if str(RAFT_ROOT) not in sys.path:
@@ -59,46 +66,259 @@ if USE_RAFT:
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
-    args = parser.parse_args(['--model','/home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
+    args = parser.parse_args(['--model',str(RAFT_ROOT) + '/raft-small.pth',
                                 '--path','',
                                 '--small'])
-    # args.model = '/home/ffil/gaia-ws/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
-    # args.path = ''
-    # args.small = True
-    # args.mixed_precision = False
-    # args.alternate_corr = False
     
     print('loading model')
     # global model
     model_raft = torch.nn.DataParallel(RAFT(args))
-    model_raft.load_state_dict(torch.load(args.model))
+    if DEVICE=='cuda':
+        model_raft.load_state_dict(torch.load(args.model))
+    else:
+        model_raft.load_state_dict(torch.load(args.model,map_location=torch.device('cpu')))
 
     model_raft = model_raft.module
     model_raft.to(DEVICE)
     model_raft.eval()
 
-SAVE_VIDEO = True
+folder = Path(r'/Users/nate/UMN/FeedbackControl_2022-08-26_goodRuns/FeedbackControl_2022-08-25__11-07-16/camera')
+filename = 'Acquisition.avi'
+#%%
+def main():
 
-# read video file
-# folder = Path(r'D:\GAIA\SmokePlumeDetection\1Experiments\2022-05-06_UMore\OutputImages_2022-05-06__11-28-55')
-folder = Path(r'/home/ffil/Desktop')
-filename = 'Acquisition_Frames1-30000'
-# folder = Path(r'D:')
-file = folder.joinpath(filename +'.avi')
-cap = cv.VideoCapture(str(file))
+    # read video file
+    # folder = Path(r'D:\GAIA\SmokePlumeDetection\1Experiments\2022-05-06_UMore\OutputImages_2022-05-06__11-28-55')
 
-videoFps = cap.get(cv.CAP_PROP_FPS)
+    # folder = Path(r'D:')
+    file = folder.joinpath(filename)
+    cap = cv.VideoCapture(str(file))
 
-first_frame = 2000
-# first_frame = 2690
-# first_frame = 5600
-last_possible_frame = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
-skip = 5
-cap.set(cv.CAP_PROP_POS_FRAMES , first_frame)
+    videoFps = cap.get(cv.CAP_PROP_FPS)
+
+    first_frame = 520
+    # first_frame = 2690
+    # first_frame = 5600
+    # last_possible_frame = int(cap.get(cv.CAP_PROP_FRAME_COUNT)) # this doesn't work if the video wasn't saved properly, as is typical for rospya
+    last_possible_frame = 2000
+    skip = 5
+    cap.set(cv.CAP_PROP_POS_FRAMES , first_frame)
 
 
-frame_id = first_frame
-# loop and read video frames
+    frame_id = first_frame
+    # loop and read video frames
+
+
+
+
+    print('Initializing model')
+    # weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
+    weights=YOLOv5_ROOT / 'smoke.pt'
+    model_yolo, device, names = detect_init(weights)
+    imgsz = [448,448] # scaled image size to run inference on
+    model_yolo(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model_yolo.parameters())))  # run once
+
+    # %%
+
+    while True:
+        # %%
+        # reading current frame
+        # frame_id=2000
+        cap.set(cv.CAP_PROP_POS_FRAMES , frame_id)
+        ret,prev = cap.read()
+        t1 = time.time()
+        smoke,img_with_boxes = detect_smoke(prev,imgsz,model_yolo,device,names,view_img=True)
+        print('Inference time: %f' % (time.time()-t1))
+        if smoke:
+
+
+
+            # # bounding box indices
+            xx,w = (smoke[0].bounding_box[[0,2]]*prev.shape[1]).astype(np.uint32)
+            yy,h = (smoke[0].bounding_box[[1,3]]*prev.shape[0]).astype(np.uint32)
+
+            y1,y2,x1,x2 = yy-h//2, yy+h//2, xx-w//2, xx+w//2
+            # y1,y2,x1,x2 = (0,prev.shape[0],0,prev.shape[1])
+
+            # Read next frame after skip
+            cap.set(cv.CAP_PROP_POS_FRAMES , frame_id+skip)
+            success, curr = cap.read()
+            # if not success:
+            #     break
+
+            if USE_HOMOGRAPHY:
+                mask = np.ones((prev.shape[0],prev.shape[1]),dtype=np.uint8)
+                mask[y1:y2,x1:x2] = 0
+                prev = motionHomography(prev,curr,mask)
+
+
+            # using dense optical flow with RLOF
+            # flow = cv.optflow.calcOpticalFlowDenseRLOF(prev[y1:y2,x1:x2,:],curr[y1:y2,x1:x2,:],None) # using defaults for now
+
+            # computing flow outside the bounding box
+            t1 = time.time()
+            if USE_RAFT:
+                flow_outside,_,_ = RAFTflow(prev,curr,model_raft)
+            else:
+                flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(prev,curr,None) # using defaults for now
+            print('Flow time: %f sec' % (time.time()-t1))
+
+
+            flow = flow_outside[y1:y2,x1:x2,:].copy()
+            flow_outside[y1:y2,x1:x2,:] = np.nan
+            
+
+            if USE_COMP:
+                if USE_INPAINTING:
+                    tmp = time.time()
+
+                    u1 = flow_outside[:,:,0].copy()
+                    u2 = flow_outside[:,:,1].copy()
+                    rescale = 4
+                    u1 = cv.resize(u1,[u1.shape[1]//rescale,u1.shape[0]//rescale])
+                    u2 = cv.resize(u2,[u2.shape[1]//rescale,u2.shape[0]//rescale])
+
+
+
+                    # u1 = fillnodata(u1,~np.isnan(u1),max_search_distance=500)
+                    # u2 = fillnodata(u2,~np.isnan(u2),max_search_distance=500)
+                    u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+                    u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+
+                    
+                    u1 = cv.resize(u1,[prev.shape[1],prev.shape[0]])
+                    u2 = cv.resize(u2,[prev.shape[1],prev.shape[0]])
+
+                    # img = flow_outside[:,:,0]
+                    # valid_mask = ~np.isnan(img)
+                    # coords = np.array(np.nonzero(valid_mask)).T
+                    # values = img[valid_mask]
+
+                    # it = interpolate.LinearNDInterpolator(coords, values, fill_value=0)
+                    print('Inpainting time: %f' % (time.time()-tmp))
+                    # filled = it(list(np.ndindex(img.shape))).reshape(img.shape)
+                    # u1 = filled.copy()
+                    # u2 = u1.copy()
+                    
+                    flow[:,:,0] -=u1[y1:y2,x1:x2]
+                    flow[:,:,1] -=u2[y1:y2,x1:x2]
+                    flow_outside_x = np.nanmean(flow[:,:,0].flatten())
+                    flow_outside_y = np.nanmean(flow[:,:,1].flatten())
+                    # %matplotlib inline
+                    # u1 = cv.rectangle(u1,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
+                    # u2 = cv.rectangle(u2,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
+                    # plt.imshow(np.concatenate((u1,u2),axis=1))
+                    # plt.show()
+
+                else:
+                    flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
+                    flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
+                
+                if USE_OUTSIDE_MEDIAN_COMP:
+                    # compensating for external motion using flow outside bounding box
+                    flow[:,:,0] -= flow_outside_x
+                    flow[:,:,1] -= flow_outside_y
+            else:
+                flow_outside_x=flow_outside_y=0
+            
+
+            if USE_FILTER_FLOW:
+                # filter out low displacements
+                flow[np.abs(flow) < 5] = np.nan
+
+            if USE_FILTER_COLOR:
+                tmp = time.time()
+                # filter out if not very white
+                # if USE_RAFT:
+                #     color_filter = np.mean(prev_small,axis=2) < 180
+                # else:
+                color_filter = np.mean(prev[y1:y2,x1:x2,:],axis=2) < 180
+                flow[color_filter] = np.nan
+                print('COlor filter time: %f' % (time.time()-tmp))
+            
+            if USE_UNCERTAINTY:
+                tmp = time.time()
+                sigma_inside = np.array([np.nanstd(flow[:,:,0].flatten()),np.nanstd(flow[:,:,1].flatten())])
+                mean_inside = np.abs(np.array([np.nanmean(flow[:,:,0].flatten()),np.nanmean(flow[:,:,1].flatten())]))
+                # print('Sigma: (%0.3f,%0.3f); Mean: (%0.3f,%0.3f)' % (sigma_inside[0],sigma_inside[1],mean_inside[0],mean_inside[1]))
+                # if all(sigma_inside > 2*mean_inside):
+                    # flow = np.full_like(flow,np.nan)
+                    # print('not good')
+                print('Uncertainty time: %f' % (time.time()-tmp))
+            
+                # plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_arrow=False)
+            if USE_MIN_VECTORS_FILTER:
+                tmp = time.time()
+                count = np.sum(~np.isnan(flow.flatten()))/2
+                # print('Count: %d' % int(count))
+                BLACK = (265,265,265)
+                font = cv.FONT_HERSHEY_SIMPLEX
+                font_size = 1
+                font_color = BLACK
+                font_thickness = 2
+                prev = cv.putText(prev,'Vectors: %d' % count,(10,prev.shape[0]-30),font, font_size, font_color, font_thickness, cv.LINE_AA)
+                if count < 1e4:
+                    flow = np.full_like(flow,np.nan)
+                print('Vector count time: %f' % (time.time()-tmp))
+            
+            result = plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_arrow=USE_COMP,plot_outside_detail = False,show_figure=True)
+
+            # %%
+            # fig,ax = plt.subplots(1,2)
+            # ax[0].hist(flow[:,:,0].flatten())
+            # ax[1].hist(flow[:,:,1].flatten())
+            # plt.show()
+        # except:
+        else:
+            result = prev           
+        BLACK = (265,265,265)
+        font = cv.FONT_HERSHEY_SIMPLEX
+        font_size = 1
+        font_color = BLACK
+        font_thickness = 2
+        # result = cv.putText(result,'frame %d' % frame_id,(10,30),font, font_size, font_color, font_thickness, cv.LINE_AA)
+
+
+ 
+
+        if SAVE_VIDEO:
+            if frame_id == first_frame:
+                if USE_RAFT:
+                    savename = folder.joinpath('opticalflow_RAFT.avi')
+                else:
+                    savename = folder.joinpath('opticalflow.avi')
+                if savename.suffix.lower()=='.mp4':
+                    # codec = cv.VideoWriter_fourcc(*'XVID')
+                    codec = 0x7634706d
+                elif savename.suffix.lower()=='.avi':
+                    codec = cv.VideoWriter_fourcc('M','J','P','G')
+                video = cv.VideoWriter(filename=str(savename),
+                    fourcc=codec, 
+                    fps=videoFps, 
+                    frameSize=(result.shape[1],result.shape[0]))
+            video.write(result)
+
+        cv.imshow('frame',result)
+        key = cv.waitKey(1)
+        if key == 27:   # if esc key pressed
+            print('\nESC was pressed, ending acquisition')
+            cv.destroyAllWindows()
+            if SAVE_VIDEO:
+                video.release()
+            # connection.close()
+            # server_socket.close()
+            break
+
+        frame_id+=1
+        if frame_id >= last_possible_frame:
+            cv.destroyAllWindows()
+            if SAVE_VIDEO:
+                video.release()
+            break
+
+
+        print('full time %f' % (time.time()-t1))
+
 
 
 
@@ -290,7 +510,7 @@ def motionHomography(img1,img2,mask,debugging=False):
 
     return img1_warp
 
-def plot_flow(img,flow_inside,flow_outside,ROI,plot_outside_arrow = True,plot_outside_detail = False,show_figure=True):
+def plot_flow(prev,flow_inside,flow_outside,ROI,plot_outside_arrow = True,plot_outside_detail = False,show_figure=True):
     x1,x2,y1,y2 = ROI
     img = prev.copy()
     tmp2 = prev.copy()
@@ -311,7 +531,7 @@ def plot_flow(img,flow_inside,flow_outside,ROI,plot_outside_arrow = True,plot_ou
     img = cv.rectangle(img,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
 
     # drawing bulk motion arrow in bounding box
-    bb_ux,bb_uy = (np.nanmean(flow_inside[:,:,0].flatten()),np.nanmean(flow_inside[:,:,1].flatten()))
+    bb_ux,bb_uy = (np.nanmedian(flow_inside[:,:,0].flatten()),np.nanmedian(flow_inside[:,:,1].flatten()))
     if np.isnan(bb_ux) or np.isnan(bb_uy):
         bb_ux = bb_uy = 0
     # print('dx,dy = %0.3f,%0.3f' % (bb_ux,bb_uy))
@@ -367,226 +587,7 @@ def plot_flow(img,flow_inside,flow_outside,ROI,plot_outside_arrow = True,plot_ou
         plt.show()
     return img
 
-print('Initializing model')
-# weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
-weights=YOLOv5_ROOT / 'smoke.pt'
-model_yolo, device, names = detect_init(weights)
-imgsz = [448,448] # scaled image size to run inference on
-model_yolo(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model_yolo.parameters())))  # run once
-
-# %%
-
-while True:
-    # %%
-    # reading current frame
-    # frame_id=2000
-    cap.set(cv.CAP_PROP_POS_FRAMES , frame_id)
-    ret,prev = cap.read()
-    t1 = time.time()
-    smoke,img_with_boxes = detect_smoke(prev,imgsz,model_yolo,device,names,view_img=True)
-    print('Inference time: %f' % (time.time()-t1))
-    if smoke:
 
 
-
-        # # bounding box indices
-        xx,w = (smoke[0].bounding_box[[0,2]]*prev.shape[1]).astype(np.uint32)
-        yy,h = (smoke[0].bounding_box[[1,3]]*prev.shape[0]).astype(np.uint32)
-
-        y1,y2,x1,x2 = yy-h//2, yy+h//2, xx-w//2, xx+w//2
-        # y1,y2,x1,x2 = (0,prev.shape[0],0,prev.shape[1])
-
-        # Read next frame after skip
-        cap.set(cv.CAP_PROP_POS_FRAMES , frame_id+skip)
-        success, curr = cap.read()
-        # if not success:
-        #     break
-
-        if USE_HOMOGRAPHY:
-            mask = np.ones((prev.shape[0],prev.shape[1]),dtype=np.uint8)
-            mask[y1:y2,x1:x2] = 0
-            prev = motionHomography(prev,curr,mask)
-
-
-        # using dense optical flow with RLOF
-        # flow = cv.optflow.calcOpticalFlowDenseRLOF(prev[y1:y2,x1:x2,:],curr[y1:y2,x1:x2,:],None) # using defaults for now
-
-        # computing flow outside the bounding box
-        t1 = time.time()
-        if USE_RAFT:
-            flow_outside,_,_ = RAFTflow(prev,curr)
-        else:
-            flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(prev,curr,None) # using defaults for now
-        print('Flow time: %f sec' % (time.time()-t1))
-
-
-        flow = flow_outside[y1:y2,x1:x2,:].copy()
-        flow_outside[y1:y2,x1:x2,:] = np.nan
-        
-
-
-        if USE_INPAINTING:
-            tmp = time.time()
-
-            u1 = flow_outside[:,:,0].copy()
-            u2 = flow_outside[:,:,1].copy()
-            rescale = 4
-            u1 = cv.resize(u1,[u1.shape[1]//rescale,u1.shape[0]//rescale])
-            u2 = cv.resize(u2,[u2.shape[1]//rescale,u2.shape[0]//rescale])
-
-
-
-            # u1 = fillnodata(u1,~np.isnan(u1),max_search_distance=500)
-            # u2 = fillnodata(u2,~np.isnan(u2),max_search_distance=500)
-            u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-            u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-
-            
-            u1 = cv.resize(u1,[prev.shape[1],prev.shape[0]])
-            u2 = cv.resize(u2,[prev.shape[1],prev.shape[0]])
-
-            # img = flow_outside[:,:,0]
-            # valid_mask = ~np.isnan(img)
-            # coords = np.array(np.nonzero(valid_mask)).T
-            # values = img[valid_mask]
-
-            # it = interpolate.LinearNDInterpolator(coords, values, fill_value=0)
-            print('Inpainting time: %f' % (time.time()-tmp))
-            # filled = it(list(np.ndindex(img.shape))).reshape(img.shape)
-            # u1 = filled.copy()
-            # u2 = u1.copy()
-            
-            flow[:,:,0] -=u1[y1:y2,x1:x2]
-            flow[:,:,1] -=u2[y1:y2,x1:x2]
-            flow_outside_x = np.nanmean(flow[:,:,0].flatten())
-            flow_outside_y = np.nanmean(flow[:,:,1].flatten())
-            # %matplotlib inline
-            # u1 = cv.rectangle(u1,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-            # u2 = cv.rectangle(u2,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-            # plt.imshow(np.concatenate((u1,u2),axis=1))
-            # plt.show()
-
-        else:
-            flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
-            flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
-        
-        if USE_OUTSIDE_MEDIAN_COMP:
-            # compensating for external motion using flow outside bounding box
-            flow[:,:,0] -= flow_outside_x
-            flow[:,:,1] -= flow_outside_y
-
-        
-
-        if USE_FILTER_FLOW:
-            # filter out low displacements
-            flow[np.abs(flow) < 5] = np.nan
-
-        if USE_FILTER_COLOR:
-            tmp = time.time()
-            # filter out if not very white
-            # if USE_RAFT:
-            #     color_filter = np.mean(prev_small,axis=2) < 180
-            # else:
-            color_filter = np.mean(prev[y1:y2,x1:x2,:],axis=2) < 180
-            flow[color_filter] = np.nan
-            print('COlor filter time: %f' % (time.time()-tmp))
-        
-        if USE_UNCERTAINTY:
-            tmp = time.time()
-            sigma_inside = np.array([np.nanstd(flow[:,:,0].flatten()),np.nanstd(flow[:,:,1].flatten())])
-            mean_inside = np.abs(np.array([np.nanmean(flow[:,:,0].flatten()),np.nanmean(flow[:,:,1].flatten())]))
-            # print('Sigma: (%0.3f,%0.3f); Mean: (%0.3f,%0.3f)' % (sigma_inside[0],sigma_inside[1],mean_inside[0],mean_inside[1]))
-            # if all(sigma_inside > 2*mean_inside):
-                # flow = np.full_like(flow,np.nan)
-                # print('not good')
-            print('Uncertainty time: %f' % (time.time()-tmp))
-        
-            # plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_arrow=False)
-        if USE_MIN_VECTORS_FILTER:
-            tmp = time.time()
-            count = np.sum(~np.isnan(flow.flatten()))/2
-            # print('Count: %d' % int(count))
-            BLACK = (265,265,265)
-            font = cv.FONT_HERSHEY_SIMPLEX
-            font_size = 1
-            font_color = BLACK
-            font_thickness = 2
-            prev = cv.putText(prev,'Vectors: %d' % count,(10,prev.shape[0]-30),font, font_size, font_color, font_thickness, cv.LINE_AA)
-            if count < 1e4:
-                flow = np.full_like(flow,np.nan)
-            print('Vector count time: %f' % (time.time()-tmp))
-        
-        result = plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_detail = False,show_figure=True)
-
-        # %%
-        # fig,ax = plt.subplots(1,2)
-        # ax[0].hist(flow[:,:,0].flatten())
-        # ax[1].hist(flow[:,:,1].flatten())
-        # plt.show()
-    # except:
-    else:
-        result = prev           
-    BLACK = (265,265,265)
-    font = cv.FONT_HERSHEY_SIMPLEX
-    font_size = 1
-    font_color = BLACK
-    font_thickness = 2
-    result = cv.putText(result,'frame %d' % frame_id,(10,30),font, font_size, font_color, font_thickness, cv.LINE_AA)
-    # result = cv.text
-
-    # if USE_HOMOGRAPHY:
-    #     tmp2 = cv.addWeighted(prev.copy(), 0.3, curr, 0.2, 0)
-    # else:
-    #     step = 5
-    #     for ii in range(0,flow_outside.shape[1],step):
-    #         for jj in range(0,flow_outside.shape[0],step):
-    #             if not any(np.isnan(flow_outside[jj,ii,:])):
-    #                 tmp2 = cv.arrowedLine(
-    #                     tmp2,
-    #                     pt1 = np.array([ii,jj]),
-    #                     pt2 = np.array([ii,jj])+ np.array([flow_outside[jj,ii,0],flow_outside[jj,ii,1]]).astype(int),
-    #                     color=[0,255,0],
-    #                     thickness=1,
-    #                     tipLength=0.5
-    #                 )
-    # result = np.concatenate((result,tmp2),axis=1)
-
-    if SAVE_VIDEO:
-        if frame_id == first_frame:
-            if USE_RAFT:
-                savename = folder.joinpath('opticalflow_RAFT.avi')
-            else:
-                savename = folder.joinpath('opticalflow.avi')
-            if savename.suffix.lower()=='.mp4':
-                # codec = cv.VideoWriter_fourcc(*'XVID')
-                codec = 0x7634706d
-            elif savename.suffix.lower()=='.avi':
-                codec = cv.VideoWriter_fourcc('M','J','P','G')
-            video = cv.VideoWriter(filename=str(savename),
-                fourcc=codec, 
-                fps=videoFps, 
-                frameSize=(result.shape[1],result.shape[0]))
-        video.write(result)
-
-    cv.imshow('frame',result)
-    key = cv.waitKey(1)
-    if key == 27:   # if esc key pressed
-        print('\nESC was pressed, ending acquisition')
-        cv.destroyAllWindows()
-        if SAVE_VIDEO:
-            video.release()
-        # connection.close()
-        # server_socket.close()
-        break
-
-    frame_id+=1
-    if frame_id >= last_possible_frame:
-        cv.destroyAllWindows()
-        if SAVE_VIDEO:
-            video.release()
-        break
-
-
-    print('full time %f' % (time.time()-t1))
-
-
+if __name__=='__main__':
+    main()
