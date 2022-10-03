@@ -131,7 +131,7 @@ def imagecallback(img):
                                                time_stamp,
                                                box.bbox.center.x,
                                                box.bbox.center.y,
-                                               box.bbox.sizex,
+                                               box.bbox.size_x,
                                                box.bbox.size_y))
     # viewing/saving images
     savenum=img.header.seq

@@ -8,7 +8,7 @@ from rospy.client import init_node
 from sensor_msgs.msg import Image
 from vision_msgs.msg import BoundingBox2D,Detection2D
 import os, datetime, time
-
+import re
 #------------OPTION TO TURN OFF OPTICAL FLOW-------#
 OPT_FLOW_OFF = False
 UPSCALE = False
@@ -428,7 +428,7 @@ def RAFTflow(img1,img2):
 
         padder = InputPadder(img1.shape)
         img1, img2 = padder.pad(img1, img2)
-
+        print(img1.size())
         _,flow = model_raft(img1,img2,iters=20,test_mode=True)
         flow = padder.unpad(flow)
         flow = flow[0].permute(1,2,0).cpu().numpy()

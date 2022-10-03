@@ -1,5 +1,6 @@
 #!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
 # license removed for brevity
+from ast import And
 import rospy
 from vision_msgs.msg import BoundingBox2D,Detection2D
 from geometry_msgs.msg import Twist
@@ -22,6 +23,7 @@ top_down_mode = False  # different operating mode for motion if the drone is far
 hybrid_mode = True # starts horizontal, moves toward object, then once above it, moves into the top-down-mode
 yaw_mode = True # whether or not to yaw the entire drone during motion
 USE_PITCH_ERROR = True
+forward_scan_option = False
 #---------------------------------------------------#
 
 # create saving directory
@@ -45,11 +47,12 @@ fid = open(savedir.joinpath('Feedbackdata.csv'),'w')
 fid.write('Timestamp,Alt,GPS_x,GPS_y,MoveUp,AboveObject,Pitch,Size_error,OptFlow_On,Flow_x,Flow_y,Vspeed,Fspeed,Hspeed\n')
 
 
-print_pitch = True
+print_pitch = False
 print_size_error = False
 print_mode = True
 print_vspeed = False
 print_flow=True
+forward_scan = True # this should be on to start
 # print_
 # bounding box options
 setpoint_size = 0.8 #fraction of frame that should be filled by target. Largest axis (height or width) used.
@@ -63,17 +66,17 @@ alt_flow = 3 # altitude at which to stop descent and keep constant for optical f
 # gain values
 size_gain = 1
 yaw_gain = 1
-gimbal_pitch_gain = -100
-gimbal_yaw_gain = 30
+gimbal_pitch_gain = -20 # previously -100
+gimbal_yaw_gain = 7 # previously 30, adjusting now for faster yolo
 
 # traverse_gain = 2.5
 traverse_gain = 2
-flow_gain = 0.5
+flow_gain = 0.25
 # vertical_gain = 3 # half of the size_gain value
 vertical_gain = 2 # half of the size_gain value
 # new gain for error term for pitch
-pitcherror_gain_min = 0.5 # needs to be tuned, but this sets a floor on how much teh drone can be slowed down by pitch feedback
-
+pitcherror_gain_min = 0.75 # sets a floor on how much teh drone can be slowed down by pitch feedback
+                           # larger value (max 1) means the forward speed will be attenuated less (i.e., not as slowed down by teh pitch feedback) 
 # limit parameters
 yaw_center = 1500
 pitch_up=1000 # this value seems to drift sometimes
@@ -88,6 +91,7 @@ limit_max_yaw = yaw_center+500
 limit_min_yaw = yaw_center-500
 move_up_speed=0.5
 descent_speed = -0.3
+fscan_speed = 0.5
 
 # initialize
 horizontalerror = 0 
@@ -98,8 +102,9 @@ hspeed = 0 # positive is to the right
 fspeed = 0 # positive is forwards
 flow_x = flow_y = 0
 yaw = 0
+yawrate = 0
 move_up = False # initialized value
-alt = 10 # initialized value outside the safegaurd
+alt = 0 # initialized value outside the safegaurd
 gps_x = gps_y=0
 above_object = False
 OPT_FLOW=False
@@ -108,11 +113,11 @@ MOVE_ABOVE = False
 pitch_down = pitch_up+900
 pitch_thresh = pitch_down-200
 pitch_45 = pitch_up + (pitch_down - pitch_up)//2
-pitch_init = pitch_45
-if top_down_mode:
-    pitchcommand = pitch_down # looking down
+if forward_scan_option or top_down_mode:
+    pitch_init = pitch_down 
 else:
-    pitchcommand = pitch_init
+    pitch_init = pitch_45
+pitchcommand = pitch_init
 yawcommand = yaw_center
 
 
@@ -182,7 +187,7 @@ def boundingbox_callback(box):
         if print_size_error:
             print('Setpoint - bbox = %f' % sizeerror)
 
-        if pitchcommand < pitch_45 and bboxsize > 0.75:
+        if pitchcommand < pitch_45 and bboxsize > 0.75: # if close and gimbal pitched upward, move to get above the object
             MOVE_ABOVE = True
 
         
@@ -221,20 +226,23 @@ def flow_callback(flow):
 
 def dofeedbackcontrol():
     global pitchcommand, yawcommand
-    global above_object
+    global above_object, forward_scan
     global yaw_mode,OPT_FLOW,OPT_COMPUTE_FLAG,MOVE_ABOVE
     global move_up, USE_PITCH_ERROR
     global hspeed,vspeed,fspeed
+    global yawrate
     global horizontalerror,verticalerror
     global twistpub, twistmsg
+
     #Initialize publishers/subscribers/node
     print("Initializing feedback node...")
+    rospy.init_node('feedbacknode', anonymous=False)
     rospy.Subscriber('/gaia/bounding_box', Detection2D, boundingbox_callback)
     rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
     rospy.Subscriber('/gaia/flow',BoundingBox2D,flow_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
     rcpub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=1)
-    rospy.init_node('feedbacknode', anonymous=False)
+    
 
     # print(rospy.get_published_topics())
 
@@ -248,18 +256,33 @@ def dofeedbackcontrol():
     print("Feedback node initialized, starting control")
     while not rospy.is_shutdown():
 
-        # safeguard for vertical motion
-        if alt < alt_min:
-            rise_up(dz = 2,vz=0.5)
+
             # move_up = True # will move up until desired altitude, to reset
         # elif alt > alt_min+alt_delta:
             # move_up = False     # desired altitude reached
+
+        if forward_scan_option and forward_scan:
+            # in this mode, the drone will just start moving forward until it sees the smoke below it
+            fspeed = fscan_speed
+            vspeed = 0
+            hspeed = 0
+        
 
         #feedback control algorithm
         #don't publish if message is old
         if time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5):
         # if True:
 
+
+            # safeguard for vertical motion
+            if alt < alt_min:
+                rise_up(dz = 2,vz=0.5)
+            # end the forward scan phase once in teh air looking down and recognizing a particle
+            # only do this if this option is turned on
+            if forward_scan_option:
+                if above_object and alt > alt_flow and pitchcommand > pitch_thresh:
+                    forward_scan = False
+                    fspeed = 0
             
             # to try and get the drone to move up if the smoke plume is only in front of it
             if MOVE_ABOVE:
@@ -397,46 +420,53 @@ def dofeedbackcontrol():
             # pitchcommand = pitch_45
             #---------------------------------#
 
-            #bound controls to ranges
-            fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
-            hspeed = min(max(hspeed,-limit_speed),limit_speed)
-            vspeed = min(max(vspeed,-limit_speed_v),limit_speed_v) # vertical speed
-            yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
-            yawcommand = min(max(yawcommand,1000),2000)
-            pitchcommand = min(max(pitchcommand,1000),2000)
-            #assign to messages, publish
-            fid.write('%s,%f,%f,%f,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
-                (time.time(),alt,gps_x,gps_y,str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
-            if yaw_mode:
-                twistmsg.linear.x = math.cos(yaw)*fspeed
-                twistmsg.linear.y = math.sin(yaw)*fspeed
-                twistmsg.angular.z = yawrate
-            else:
-                twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
-                twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
-                twistmsg.angular.z = 0
-            
-            twistmsg.linear.z = vspeed  # adding vertical motion
-            rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
-            rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
-            twistpub.publish(twistmsg)
-            rcpub.publish(rcmsg)
-            if print_pitch:
-                print('Pitch: %f' % pitchcommand)
-
+        
         elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
             # if nothing detected for 5 seconds, reset gimbal position, and if more than 10 seconds, go back to manual control from RC
-            # if not above_object:
+            # also reinitializes other settings
             pitchcommand = pitch_init 
             yawcommand = yaw_center
             above_object = False
             OPT_FLOW = False # turn off teh optical flow mode
             OPT_COMPUTE_FLAG = False
+            if forward_scan_option:
+                # turn this initial mode back on
+                forward_scan = True
             # if alt < 7.5:
             #     rise_up(dz=5) # stops movement laterally, and drone rises 5 meters
             if (rospy.Time.now() - time_lastbox < rospy.Duration(10)):
                 rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
                 rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
+        
+        # out of loop, send commands
+        #bound controls to ranges
+        fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
+        hspeed = min(max(hspeed,-limit_speed),limit_speed)
+        vspeed = min(max(vspeed,-limit_speed_v),limit_speed_v) # vertical speed
+        yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
+        yawcommand = min(max(yawcommand,1000),2000)
+        pitchcommand = min(max(pitchcommand,1000),2000)
+        #assign to messages, publish
+        fid.write('%s,%f,%f,%f,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
+            (time.time(),alt,gps_x,gps_y,str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
+        if yaw_mode:
+            twistmsg.linear.x = math.cos(yaw)*fspeed
+            twistmsg.linear.y = math.sin(yaw)*fspeed
+            twistmsg.angular.z = yawrate
+        else:
+            twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
+            twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
+            twistmsg.angular.z = 0
+        
+        twistmsg.linear.z = vspeed  # adding vertical motion
+        rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
+        rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
+        twistpub.publish(twistmsg)
+        rcpub.publish(rcmsg)
+        if print_pitch:
+            print('Pitch: %f' % pitchcommand)
+
+        
         rate.sleep()
 
 def rise_up(dz = 5,vz=1):
@@ -450,6 +480,7 @@ def rise_up(dz = 5,vz=1):
     
     twistmsg.linear.z = 0
     twistpub.publish(twistmsg)
+    return
 
 if __name__ == '__main__':
     try:

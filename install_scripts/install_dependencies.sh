@@ -103,7 +103,7 @@ sudo apt-get install -y libfreetype6-dev #must be installed before pillow or cau
 #attempt to use actual requirements.txt for now
 $py_env -m pip install matplotlib
 # $py_env -m pip install numpy
-$py_env -m pip install opencv-contrib-python
+$py_env -m pip install opencv-python
 # $py_env -m pip install Pillow
 # $py_env -m pip install PyYAML
 $py_env -m pip install requests

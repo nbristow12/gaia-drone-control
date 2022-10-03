@@ -14,7 +14,8 @@ from goprocam import constants
 import queue, threading
 from pathlib import Path
 sys.path.append("goproapi")
-
+import re
+import numpy as np
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
 VIEW_IMG=True
 save_image = True
@@ -111,7 +112,7 @@ def publishimages():
         cap = VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
         
 
-
+        capt1 = 0
         # Retrieve, convert, and save images
         i = 0
         first_image=True
@@ -121,8 +122,14 @@ def publishimages():
             try:
 
                 #  Retrieve next received image
-
+                
+                t1 = time.time()
                 img_raw = cap.read()
+
+                capt2 = time.time()
+                # print('Capture fps ~',1/(capt2-capt1))
+                capt1 = capt2
+
                 if img_raw is not None:
                     ret = True
                     if first_image:
@@ -154,12 +161,15 @@ def publishimages():
 
                     # #get numpy image
                     # image_numpy = image_converted.GetNDArray()
+
+                    # print('Delay before showing',1e3*(time.time() - capt2))
+
                     if VIEW_IMG:
                         cv2.imshow('gopro',img_raw)
                         cv2.waitKey(1)
                         # imgtmp = PILImage.fromarray(img_raw,'RGB')
                         # imgtmp.show()
-
+                    # print('Delay including showing',1e3*(time.time() - capt2))
                     #assign image to ros structure
                     # img.data = image_numpy.flatten().tolist()
                     img.data = img_raw.flatten().tolist()
