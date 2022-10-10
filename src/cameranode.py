@@ -5,6 +5,7 @@
 from tkinter import image_types
 import rospy
 from sensor_msgs.msg import Image
+from sensor_msgs.msg import TimeReference
 import os, datetime
 # import PySpin
 import sys, subprocess, time
@@ -17,13 +18,14 @@ sys.path.append("goproapi")
 import re
 import numpy as np
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
-VIEW_IMG=True
+VIEW_IMG = False
 save_image = True
 save_format = '.avi'
 #-----------------------------------------------------#
 
 
 # create saving directory
+gps_t = 0
 username = os.getlogin( )
 tmp = datetime.datetime.now()
 stamp = ("%02d-%02d-%02d" % 
@@ -75,9 +77,19 @@ class VideoCapture:
         self.cap.release()
         return
 
+def time_callback(gpstime):
+    global gps_t
+    gps_t = float(gpstime.time_ref.to_sec())
+    # gps_t = gps_t
+    
+    # print(gps_t)
+    # print(rospy.get_time())
+    # print(time.time())
+
 def publishimages():
     pub = rospy.Publisher('/camera/image', Image, queue_size=1)
     rospy.init_node('cameranode', anonymous=False)
+    rospy.Subscriber('mavros/time_reference',TimeReference,time_callback)
 
     """
     This function acquires images from a device.
@@ -145,7 +157,8 @@ def publishimages():
 
 
                 # adding to time stamp log
-                timelog.write('%d,%f\n' % (img.header.seq,time.time()))
+                # timelog.write('%d,%f\n' % (img.header.seq,time.time()))
+                timelog.write('%d,%f\n' % (img.header.seq,gps_t))
   
                 if not ret:
                     print('Image capture with opencv unsuccessful')
@@ -193,7 +206,7 @@ def publishimages():
                                 codec = cv2.VideoWriter_fourcc('M','J','P','G')
                                 video = cv2.VideoWriter(str(savedir.joinpath('Acquisition'+save_format)),
                                     fourcc=codec,
-                                    fps=10,
+                                    fps=30,
                                     frameSize = (img_raw.shape[1],img_raw.shape[0]))
                             video.write(img_raw)
                         else:

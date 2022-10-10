@@ -7,6 +7,7 @@ import rospy
 from rospy.client import init_node
 from sensor_msgs.msg import Image
 from vision_msgs.msg import BoundingBox2D,Detection2D
+from sensor_msgs.msg import TimeReference
 import os, datetime, time
 import re
 #------------OPTION TO TURN OFF OPTICAL FLOW-------#
@@ -21,7 +22,7 @@ SAVE_FLOW = True
 
 #--------OPTION FOR RAFT OPTICAL FLOW------------#
 USE_RAFT=True # also option to save image of output
-USE_COMP = False    # use any background compensation at all
+USE_COMP = True    # use any background compensation at all
 USE_OUTSIDE_MEDIAN_COMP = False
 USE_INPAINTING_COMP = True
 USE_FILTER_FLOW = False
@@ -46,7 +47,7 @@ if USE_RAFT:
     import torch
     import argparse
 
-
+gps_t = 0
 # create saving directory
 username = os.getlogin( )
 tmp = datetime.datetime.now()
@@ -73,7 +74,7 @@ skip=5
 def loopcallback(data):
     global datalist
     if rospy.Time.now() - data.source_img.header.stamp > rospy.Duration(5):
-        print("OpticalFlowNode: one of images is too old, dropping\n")
+        # print("OpticalFlowNode: one of images is too old, dropping\n")
         return
     if len(datalist)==0:
         if data.bbox.center.x == -1:
@@ -85,21 +86,33 @@ def loopcallback(data):
     else:
         dt = data.source_img.header.stamp - datalist[0].source_img.header.stamp
         if dt > rospy.Duration(0.2):
-            if dt < rospy.Duration(5):
+            if dt < rospy.Duration(1):
             
                 # second image with proper delay found, passing to optical flow
                 datalist.append(data)
+                # try:
                 flow = opticalflowmain()
                 flowpub.publish(flow)
+                    
+                # except:
+                #     print('Cropped image too small for OF')
+                # finally:
                 datalist=[]
             else:
-                print('Second image too late, emptying list')
+                # print('Second image too late, emptying list')
                 
                 # emptying the list of images to start fresh
                 datalist = []
-        else:
-            print('Second image too early')
-
+        # else:
+            # print('Second image too early')
+def time_callback(gpstime):
+    global gps_t
+    gps_t = float(gpstime.time_ref.to_sec())
+    # gps_t = gps_t
+    
+    # print(gps_t)
+    # print(rospy.get_time())
+    # print(time.time())
 
 def init_flownode():
     """initializing optical flow node
@@ -109,6 +122,7 @@ def init_flownode():
     print('Initializing optical flow node')
     rospy.init_node('opticalflownode', anonymous=False)
     flowpub = rospy.Publisher('/gaia/flow',BoundingBox2D,queue_size=1)
+    rospy.Subscriber('mavros/time_reference',TimeReference,time_callback)
     flow = BoundingBox2D() # using this becaue not sure other ros message formats to use
     
 
@@ -193,7 +207,7 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     """
     if USE_RAFT:
         global model_raft
-    print('computing optical flow')
+    # print('computing optical flow')
     t1 = time.time()
     color_filter_thresh = 180
     median_skipping = 1
@@ -252,7 +266,7 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
             u2 = cv.resize(u2,[img1.shape[1],img1.shape[0]])
 
 
-            print('Inpainting time: %f' % (time.time()-tmp))
+            # print('Inpainting time: %f' % (time.time()-tmp))
 
 
             flow_inside[:,:,0] -=u1[y1:y2,x1:x2]
@@ -327,7 +341,7 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     else:
         boxflow_x = boxflow_y = 0
     t2 = time.time()
-    print('Optical flow computation took %f seconds' % (t2-time_init))
+    # print('Optical flow computation took %f seconds' % (t2-time_init))
     
     # drawing plot
     tmp = img1.copy()
@@ -354,7 +368,7 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     tmp = cv.rectangle(tmp,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
 
 
-    print(boxflow_x,boxflow_y)
+    # print(boxflow_x,boxflow_y)
     if boxflow_x != 0 and boxflow_y !=0:# drawing bulk motion arrow in bounding box
         going_to = np.array([(x1+x2)/2,(y1+y2)/2],dtype=np.uint32) + np.array([boxflow_x,boxflow_y],dtype=np.uint32)
         middle = np.array([(x1+x2)//2,(y1+y2)//2],dtype=np.uint32)
@@ -428,7 +442,7 @@ def RAFTflow(img1,img2):
 
         padder = InputPadder(img1.shape)
         img1, img2 = padder.pad(img1, img2)
-        print(img1.size())
+        # print(img1.size())
         _,flow = model_raft(img1,img2,iters=20,test_mode=True)
         flow = padder.unpad(flow)
         flow = flow[0].permute(1,2,0).cpu().numpy()

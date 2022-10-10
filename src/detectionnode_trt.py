@@ -6,6 +6,7 @@ import rospy
 from rospy.client import init_node
 from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2D
+from sensor_msgs.msg import TimeReference
 import numpy as np
 import cv2
 import os, re
@@ -19,7 +20,7 @@ import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
 
 #------------------------OPTIONS---------------------#
-target_name = 'person' # options: smoke,car,person
+target_name = 'smoke' # options: smoke,car,person
 engine = True # using tensorrt
 half = True
 max_delay = 0.5 # [seconds] delay between last detectiona nd current image after which to just drop images to catch up
@@ -27,10 +28,10 @@ conf_thres=0.4  # confidence threshold
 iou_thres=0.45  # NMS IOU threshold
 
 VIEW_IMG=True
-SAVE_IMG = False
+SAVE_IMG = True
 save_format = '.avi'
 #-----------------------------------------------------#
-
+gps_t = 0
 # create saving directory
 username = os.getlogin( )
 tmp = datetime.datetime.now()
@@ -133,9 +134,9 @@ def imagecallback(img):
         # print("finished callback for image", img.header.seq,"in",end-start, "seconds \n")
         img_numpy = cv2.putText(img_numpy,text_to_image,(10,30),font, font_size, font_color, font_thickness, cv2.LINE_AA)
 
-        # adding to time stamp log
+        # adding to time stamp log, every frame
         timelog.write('%d,%f,%f,%f,%f,%f\n' % (img.header.seq,
-                                               time_stamp,
+                                               gps_t,
                                                box.bbox.center.x,
                                                box.bbox.center.y,
                                                box.bbox.size_x,
@@ -159,8 +160,17 @@ def imagecallback(img):
         cv2.waitKey(1)  # 1 millisecond
     # print('Rest of callback function took',1e3*(time.time()-t1))
     # print('Entire callback took',1e3*(time.time() - time_stamp))
-    print('Detection fps ~',1/(time.time() - time_stamp))
-
+    # print('Detection fps ~',1/(time.time() - time_stamp))
+    
+def time_callback(gpstime):
+    global gps_t
+    gps_t = float(gpstime.time_ref.to_sec())
+    # gps_t = gps_t
+    
+    # print(gps_t)
+    # print(rospy.get_time())
+    # print(time.time())
+    
 def init_detection_node():
     global pub,box,video,timelog
     pub = rospy.Publisher('/gaia/bounding_box', Detection2D, queue_size=1)
@@ -193,7 +203,7 @@ def init_detection_node():
         codec = cv2.VideoWriter_fourcc('M','J','P','G')
         video = cv2.VideoWriter(str(savedir.joinpath('Detection'+save_format)),
             fourcc=codec,
-            fps=10,
+            fps=20,
             frameSize = (640,480)) # this size is specific to GoPro
 
     # initializing timelog
@@ -203,6 +213,7 @@ def init_detection_node():
     # initializing node
     rospy.init_node('detectionnode', anonymous=False)
     rospy.Subscriber('/camera/image', Image, imagecallback)
+    rospy.Subscriber('mavros/time_reference',TimeReference,time_callback)
     
 
     rospy.spin()

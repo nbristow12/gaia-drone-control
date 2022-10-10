@@ -36,8 +36,8 @@ if ! grep -Fxq "source ~/gaia-feedback-control/devel/setup.bash" ~/.bashrc;
 fi
 
 #This is a convenience call to change permission on /dev/ttyTHS1 so this command does not have to be run before launching Mavros (or our code that uses Mavros). As a consequence you will have to enter the root password whenever you open the terminal, so you may want to delete it if not using the repo frequently.
-if ! grep -Fxq "sudo chmod 666 /dev/ttyTHS0" ~/.bashrc; 
-    then echo "sudo chmod 666 /dev/ttyTHS0" >> ~/.bashrc; 
+if ! grep -Fxq "sudo chmod 666 /dev/ttyACM0" ~/.bashrc; 
+    then echo "sudo chmod 666 /dev/ttyACM0" >> ~/.bashrc; 
 fi
 
 sudo ifconfig enp15s0 mtu 9000

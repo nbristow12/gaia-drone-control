@@ -5,6 +5,7 @@
 from tkinter import image_types
 import rospy
 from sensor_msgs.msg import Image
+from sensor_msgs.msg import TimeReference
 import os, datetime
 import PySpin
 import simple_pyspin as spy
@@ -49,33 +50,21 @@ serialstring = 'DeviceSerialNumber'
 #serialstring = '18285036'
 
 
-camlist = spy.list_cameras()
-if len(camlist)>0:
 
-    cam = spy.Camera(0)
+gps_t = 0 # just initializing
+
+def time_callback(gpstime):
+    global gps_t
+    gps_t = float(gpstime.time_ref.to_sec())
+    # gps_t = gps_t
     
-else:
-    raise Exception('NO CAMERAS FOUND')
-
-cam.init()
-
-cam.cam.DecimationHorizontal.SetValue(1)
-cam.cam.DecimationVertical.SetValue(1)
-cam.OffsetX = 0
-cam.OffsetY = 0
-cam.Width = cam.WidthMax # better than using cam.SensorWidth
-cam.Height = cam.HeightMax
-
-# image sensor binning and decimation options
-# cam.cam.BinningHorizontal.SetValue(args.binning_x)
-# cam.cam.BinningVertical.SetValue(args.binning_y)
-cam.cam.DecimationHorizontal.SetValue(dec)
-cam.cam.DecimationVertical.SetValue(dec)
-
-cam.start()
+    # print(gps_t)
+    # print(rospy.get_time())
+    # print(time.time())
 
 def publishimages():
     pub = rospy.Publisher('/camera/image', Image, queue_size=1)
+    rospy.Subscriber('mavros/time_reference',TimeReference,time_callback)
     rospy.init_node('cameranode', anonymous=False)
 
     """
@@ -108,6 +97,7 @@ def publishimages():
 
 
         # Retrieve, convert, and save images
+        capt1=0
         i = 0
         first_image=True
         img = Image()
@@ -119,9 +109,11 @@ def publishimages():
 
 
                 img_raw = cam.get_array()
-                # img_raw = cv2.cvtColor(img_raw,cv2.COLOR_BayerRG2BGR)
-                # img_raw = cv2.resize(img_raw,(640,480))
-
+                img_raw = cv2.cvtColor(img_raw,cv2.COLOR_BayerRG2BGR)
+                img_raw = cv2.resize(img_raw,(640,480))
+                capt2 = time.time()
+                print('Capture fps ~',1/(capt2-capt1))
+                capt1 = capt2
                 ret = True
 
                 #-----------#
@@ -135,7 +127,8 @@ def publishimages():
 
 
                 # adding to time stamp log
-                timelog.write('%d,%f\n' % (img.header.seq,time.time()))
+                # timelog.write('%d,%f\n' % (img.header.seq,time.time()))
+                timelog.write('%d,%f\n' % (img.header.seq,gps_t))
   
                 if not ret:
                     print('Image capture with opencv unsuccessful')
@@ -221,8 +214,37 @@ def capture_init():
     return
 
 if __name__ == '__main__':
+    camlist = spy.list_cameras()
     try:
+        
+        
+        if len(camlist)>0:
+            print('Connecting to FLIR camera')
+            cam = spy.Camera(0)
+            
+        else:
+            raise Exception('NO CAMERAS FOUND')
+
+        cam.init()
+
+        cam.cam.DecimationHorizontal.SetValue(1)
+        cam.cam.DecimationVertical.SetValue(1)
+        cam.OffsetX = 0
+        cam.OffsetY = 0
+        cam.Width = cam.WidthMax # better than using cam.SensorWidth
+        cam.Height = cam.HeightMax
+
+        # image sensor binning and decimation options
+        # cam.cam.BinningHorizontal.SetValue(args.binning_x)
+        # cam.cam.BinningVertical.SetValue(args.binning_y)
+        cam.cam.DecimationHorizontal.SetValue(dec)
+        cam.cam.DecimationVertical.SetValue(dec)
+
+        cam.start()
         publishimages()
     except rospy.ROSInterruptException:
+        if len(camlist)>0:
+            print('Closing out camera')
+            cam.close()
         pass
 
