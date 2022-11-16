@@ -1,4 +1,4 @@
-#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
+#!/usr/bin/env python3 
 # license removed for brevity
 from ast import And
 import rospy
@@ -57,9 +57,14 @@ print_pitch = False
 print_size_error = False
 print_mode = False
 print_vspeed = False
+print_yawrate = False
 print_flow=True
+print_alt = False
+print_time = False
+
 forward_scan = True # this should be on to start
 surveying = False
+
 # print_
 # bounding box options
 setpoint_size = 0.9 #fraction of frame that should be filled by target. Largest axis (height or width) used.
@@ -69,14 +74,14 @@ setpoint_size_approach = 1.5 # only relevant for hybrid mode, for getting close 
 
 # optical flow parameters
 alt_flow = 3 # altitude at which to stop descent and keep constant for optical flow
-alt_sampling = 3 # altitude setpoint at which to do a controlled sampling based on mean flow direction
+alt_sampling = 2 # altitude setpoint at which to do a controlled sampling based on mean flow direction
 
 
 # gain values
 size_gain = 1
 yaw_gain = 1
-gimbal_pitch_gain = -50 # previously -100, this needs to be adjusted depending on teh frame rate for detection (20fps=-50gain, while saving video; 30fps=-25gain with no saving)
-gimbal_yaw_gain = 15 # previously 30, adjusting now for faster yolo
+gimbal_pitch_gain = -40 # previously -100, this needs to be adjusted depending on teh frame rate for detection (20fps=-50gain, while saving video; 30fps=-25gain with no saving)
+gimbal_yaw_gain = 12 # previously 30, adjusting now for faster yolo
 
 # traverse_gain = 2.5
 traverse_gain = 3
@@ -115,7 +120,7 @@ flow_x = flow_y = flow_t = 0
 yaw = 0
 yawrate = 0
 move_up = False # initialized value
-alt = 0 # initialized value outside the safegaurd
+alt = 10 # initialized value outside the safegaurd
 gps_x = gps_y = gps_t = 0
 above_object = False
 OPT_FLOW=False
@@ -161,6 +166,8 @@ def pose_callback(pose):
     r,p,y = euler_from_quaternion(q.x,q.y,q.z,q.w)
     yaw = y
     alt = pose.pose.position.z
+    if print_alt:
+        print(f"Altitude: {alt} m")
     gps_x = pose.pose.position.x
     gps_y = pose.pose.position.y
     # print(yaw)
@@ -169,7 +176,7 @@ def time_callback(gpstime):
     global gps_t
     gps_t = float(gpstime.time_ref.to_sec())
     # gps_t = gps_t
-    
+    if print_time: print(f"Time: {gps_t}")
     # print(gps_t)
     # print(rospy.get_time())
     # print(time.time())
@@ -202,10 +209,12 @@ def boundingbox_callback(box):
             # print('Vertical error: %f' % verticalerror)
             pitchdelta = verticalerror * gimbal_pitch_gain
             pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
+            print(f"Pitch command,delta: {pitchcommand},{pitchdelta}")
             pitchcommand += pitchdelta
             pitchcommand = min(max(pitchcommand,1000),2000)
             yawdelta = horizontalerror * gimbal_yaw_gain
             yawdelta = min(max(yawdelta,-limit_yawchange),limit_yawchange)
+            print(f"Yaw command, delta: {yawcommand},{yawdelta}")
             yawcommand += yawdelta
             yawcommand = min(max(yawcommand,1000),2000)
         if print_size_error:
@@ -213,6 +222,8 @@ def boundingbox_callback(box):
 
         if pitchcommand < pitch_thresh and bboxsize > 0.75: # if close and gimbal pitched upward, move to get above the object
             MOVE_ABOVE = True
+            # pass
+            # print('Moving above command')
 
         
     return
@@ -268,7 +279,7 @@ def dofeedbackcontrol():
     rospy.init_node('feedbacknode', anonymous=False)
     rospy.Subscriber('/gaia/bounding_box', Detection2D, boundingbox_callback)
     rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
-    rospy.Subscriber('mavros/time_reference',TimeReference,time_callback)
+    rospy.Subscriber('/mavros/time_reference',TimeReference,time_callback)
     rospy.Subscriber('/gaia/flow',BoundingBox2D,flow_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
     rcpub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=1)
@@ -286,7 +297,7 @@ def dofeedbackcontrol():
     print("Feedback node initialized, starting control")
     while not rospy.is_shutdown():
 
-
+        # t1 = time.time()
             # move_up = True # will move up until desired altitude, to reset
         # elif alt > alt_min+alt_delta:
             # move_up = False     # desired altitude reached
@@ -304,9 +315,10 @@ def dofeedbackcontrol():
         if (time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5)) or debugging:
         #---------DEBUGGING---------#
         # if debugging:
-        # if True:
+        # if True:    
         #---------------------------#
-
+            # t1 = time.time()
+            
             # safeguard for vertical motion
             if alt < alt_min:
                 rise_up(dz = 2,vz=0.5)
@@ -350,7 +362,7 @@ def dofeedbackcontrol():
 
             elif hybrid_mode:
 
-
+                
 
                 # determine if above object based on pitch
                 # if in a forward scan, then this will be triggered immediately when object is recognized, since pitch is already down
@@ -459,7 +471,40 @@ def dofeedbackcontrol():
                 yawrate = ((yawcommand - yaw_center)/1000)*yaw_gain
                 hspeed = -horizontalerror * traverse_gain # this only gets used if yaw mode is off
             #---------------------------------#
+            # out of loop, send commands
+            #bound controls to ranges
+            fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
+            hspeed = min(max(hspeed,-limit_speed),limit_speed)
+            vspeed = min(max(vspeed,-limit_speed_v),limit_speed_v) # vertical speed
+            yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
+            yawcommand = min(max(yawcommand,1000),2000)
+            pitchcommand = min(max(pitchcommand,1000),2000)
+            
+            # print('fpeed:',fspeed)
+            # print('dt',time.time()-t1)
 
+
+            if yaw_mode:
+                twistmsg.linear.x = math.cos(yaw)*fspeed
+                twistmsg.linear.y = math.sin(yaw)*fspeed
+                twistmsg.angular.z = yawrate
+            else:
+                twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
+                twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
+                twistmsg.angular.z = 0
+            
+            twistmsg.linear.z = vspeed  # adding vertical motion
+            rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
+            rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
+            twistpub.publish(twistmsg)
+            rcpub.publish(rcmsg)
+            if print_pitch:
+                print('Pitch command: %f' % (pitchcommand))
+            if print_yawrate:
+                print('Yaw rate: %f' % yawrate)
+            if print_alt:
+                print(f"Altitude: {alt} m")
+            
         
         elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
             # if nothing detected for 5 seconds, reset gimbal position, and if more than 10 seconds, go back to manual control from RC
@@ -481,39 +526,11 @@ def dofeedbackcontrol():
                 rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
                 rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
         
-        # out of loop, send commands
-        #bound controls to ranges
-        fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
-        hspeed = min(max(hspeed,-limit_speed),limit_speed)
-        vspeed = min(max(vspeed,-limit_speed_v),limit_speed_v) # vertical speed
-        yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
-        yawcommand = min(max(yawcommand,1000),2000)
-        pitchcommand = min(max(pitchcommand,1000),2000)
-        
-        # print('fpeed:',fspeed)
-        
         #assign to messages, publish
         # fid.write('%s,%f,%f,%f,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
         #     (time.time(),alt,gps_x,gps_y,str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
+        # t1 = time.time()
         save_log()
-
-        if yaw_mode:
-            twistmsg.linear.x = math.cos(yaw)*fspeed
-            twistmsg.linear.y = math.sin(yaw)*fspeed
-            twistmsg.angular.z = yawrate
-        else:
-            twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
-            twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
-            twistmsg.angular.z = 0
-        
-        twistmsg.linear.z = vspeed  # adding vertical motion
-        rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
-        rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
-        twistpub.publish(twistmsg)
-        rcpub.publish(rcmsg)
-        if print_pitch:
-            print('Pitch: %f' % pitchcommand)
-
         
         rate.sleep()
 
@@ -535,7 +552,7 @@ def survey_flow():
     global twistpub, twistmsg,rcmsg,rcpub
     # function for starting a survey of the flow from above, and then calling a heading to travel towards
     global fspeed,hspeed,vspeed
-    survey_samples = 10
+    survey_samples = 20
     survey_duration = 10
     # hold position for _ seconds
     twistmsg.linear.x = 0

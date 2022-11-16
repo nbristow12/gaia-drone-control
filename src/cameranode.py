@@ -1,5 +1,4 @@
-#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
-# ######!/usr/bin/env python3 
+#!/usr/bin/env python3 
 
 # license removed for brevity
 from tkinter import image_types

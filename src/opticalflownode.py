@@ -1,4 +1,4 @@
-#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
+#!/usr/bin/env python3 
 # # license removed for brevity
 import cv2 as cv
 import numpy as np
@@ -13,20 +13,21 @@ import re
 #------------OPTION TO TURN OFF OPTICAL FLOW-------#
 OPT_FLOW_OFF = False
 UPSCALE = False
+DRAW_FLOW = True
 #---------------------------------------------------#
 
 #--------OPTION TO VIEW FLOW RESULTS IN REAL_TIME-------------#
-VIEW_IMG=True # also option to save image of output
+VIEW_IMG=False # also option to save image of output
 SAVE_FLOW = True
 #-----------------------------------------------------#
 
 #--------OPTION FOR RAFT OPTICAL FLOW------------#
 USE_RAFT=True # also option to save image of output
 USE_COMP = True    # use any background compensation at all
-USE_OUTSIDE_MEDIAN_COMP = False
-USE_INPAINTING_COMP = True
-USE_FILTER_FLOW = False
-USE_FILTER_COLOR = True # turn this False if not tracking smoke
+USE_OUTSIDE_MEDIAN_COMP = True
+USE_INPAINTING_COMP = False # more precise (theoretically) background compensation within box
+USE_FILTER_FLOW = True # filters out small flow values
+USE_FILTER_COLOR = False # turn this False if not tracking smoke
 USE_HOMOGRAPHY = False
 USE_UNCERTAINTY = False
 USE_MIN_VECTORS_FILTER = False
@@ -85,7 +86,7 @@ def loopcallback(data):
             datalist.append(data)
     else:
         dt = data.source_img.header.stamp - datalist[0].source_img.header.stamp
-        if dt > rospy.Duration(0.2):
+        if dt > rospy.Duration(0.5):
             if dt < rospy.Duration(1):
             
                 # second image with proper delay found, passing to optical flow
@@ -255,15 +256,15 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
             u1 = flow_outside[:,:,0].copy()
             u2 = flow_outside[:,:,1].copy()
             rescale = 4
-            u1 = cv.resize(u1,[u1.shape[1]//rescale,u1.shape[0]//rescale])
-            u2 = cv.resize(u2,[u2.shape[1]//rescale,u2.shape[0]//rescale])
+            u1 = cv.resize(u1,(u1.shape[1]//rescale,u1.shape[0]//rescale))
+            u2 = cv.resize(u2,(u2.shape[1]//rescale,u2.shape[0]//rescale))
 
 
             u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
             u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
             
-            u1 = cv.resize(u1,[img1.shape[1],img1.shape[0]])
-            u2 = cv.resize(u2,[img1.shape[1],img1.shape[0]])
+            u1 = cv.resize(u1,(img1.shape[1],img1.shape[0]))
+            u2 = cv.resize(u2,(img1.shape[1],img1.shape[0]))
 
 
             # print('Inpainting time: %f' % (time.time()-tmp))
@@ -344,64 +345,68 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     # print('Optical flow computation took %f seconds' % (t2-time_init))
     
     # drawing plot
-    tmp = img1.copy()
-    # drawing flow arrows
-    step = 5
-    for ii in range(0,flow_inside.shape[1],step):
-        for jj in range(0,flow_inside.shape[0],step):
-            if not any(np.isnan(flow_inside[jj,ii,:])):
-                tmp = cv.arrowedLine(
-                    tmp,
-                    pt1 = np.array([ii,jj]) + np.array([x1,y1]),
-                    pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int),
-                    color=[0,255,0],
-                    thickness=1,
-                    tipLength=0.5
-                )
-    
-    
-    if np.isnan(boxflow_x):
-        boxflow_x = 0
-    if np.isnan(boxflow_y):
-        boxflow_y = 0
-    # adding bounding box
-    tmp = cv.rectangle(tmp,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
+    if DRAW_FLOW:
+        tmp = img1.copy()
+        # drawing flow arrows
+        step = 5
+        for ii in range(0,flow_inside.shape[1],step):
+            for jj in range(0,flow_inside.shape[0],step):
+                if not any(np.isnan(flow_inside[jj,ii,:])):
+                    pt1 = np.array([ii,jj]) + np.array([x1,y1])
+                    pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int)
+                    tmp = cv.arrowedLine(
+                        tmp,
+                        pt1=tuple(pt1),
+                        pt2=tuple(pt2),
+                        color=[0,255,0],
+                        thickness=1,
+                        tipLength = 0.5
+                    )
+        
+        
+        if np.isnan(boxflow_x):
+            boxflow_x = 0
+        if np.isnan(boxflow_y):
+            boxflow_y = 0
+        # adding bounding box
+        tmp = cv.rectangle(tmp,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
 
 
-    # print(boxflow_x,boxflow_y)
-    if boxflow_x != 0 and boxflow_y !=0:# drawing bulk motion arrow in bounding box
-        going_to = np.array([(x1+x2)/2,(y1+y2)/2],dtype=np.uint32) + np.array([boxflow_x,boxflow_y],dtype=np.uint32)
-        middle = np.array([(x1+x2)//2,(y1+y2)//2],dtype=np.uint32)
-        going_to[0] = min(max(0,going_to[0]),tmp.shape[1])
-        going_to[1] = min(max(0,going_to[1]),tmp.shape[0])
+        # print(boxflow_x,boxflow_y)
+        if boxflow_x != 0 and boxflow_y !=0:# drawing bulk motion arrow in bounding box
+            going_to = np.array([(x1+x2)/2,(y1+y2)/2],dtype=np.uint32) + np.array([boxflow_x,boxflow_y],dtype=np.uint32)
+            middle = np.array([(x1+x2)//2,(y1+y2)//2],dtype=np.uint32)
+            going_to[0] = min(max(0,going_to[0]),tmp.shape[1])
+            going_to[1] = min(max(0,going_to[1]),tmp.shape[0])
+            tmp = cv.arrowedLine(
+                tmp,
+                pt1 = tuple(middle),
+                pt2 = tuple(going_to),
+                color=[255,0,0],
+                thickness=5,
+                tipLength = 0.5
+            )
+
+        # drawing bulk motion arrow from entire frame
+        pt1 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32)
+        pt2 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32) + np.array([flow_outside_x,flow_outside_y],dtype=np.uint32)
+            
         tmp = cv.arrowedLine(
             tmp,
-            pt1 = middle,
-            pt2 = going_to,
-            color=[255,0,0],
+            pt1 = tuple(pt1),
+            pt2 = tuple(pt2),
+            color=[255,255,0],
             thickness=5,
             tipLength=0.5
         )
 
-    # drawing bulk motion arrow from entire frame
-    tmp = cv.arrowedLine(
-        tmp,
-        pt1 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32),
-        pt2 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32) + np.array([flow_outside_x,flow_outside_y],dtype=np.uint32),
-        color=[255,255,0],
-        thickness=5,
-        tipLength=0.5
-    )
-
-    # plt.imshow(cv.cvtColor(tmp,cv.COLOR_BGR2RGB))
-    # plt.show()
+        # plt.imshow(cv.cvtColor(tmp,cv.COLOR_BGR2RGB))
+        # plt.show()
     result = tmp
 
     if VIEW_IMG:
-        t1 = time.time()
         cv.imshow('gopro',result)
         cv.waitKey(1)
-        t2 = time.time()
         # print('Optical flow plotting time %f' % (t2-t1))
 
 
@@ -429,9 +434,9 @@ def RAFTflow(img1,img2):
     global model_raft
     # print('Image size before pad:')
     # print(img1.shape)
-    if UPSCALE:
-        img1 = cv.resize(img1,(img1.shape[1]*2,img1.shape[0]*2))
-        img2 = cv.resize(img2,(img1.shape[1]*2,img1.shape[0]*2))
+    #if UPSCALE:
+        #img1 = cv.resize(img1,(img1.shape[1]*2,img1.shape[0]*2))
+        #img2 = cv.resize(img2,(img1.shape[1]*2,img1.shape[0]*2))
         
     with torch.no_grad():
 
