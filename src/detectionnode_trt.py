@@ -20,7 +20,7 @@ import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
 
 #------------------------OPTIONS---------------------#
-target_name = 'smoke' # options: smoke,car,person
+target_name = 'person' # options: smoke,car,person
 engine = True # using tensorrt
 half = True
 max_delay = 0.5 # [seconds] delay between last detectiona nd current image after which to just drop images to catch up
@@ -135,7 +135,8 @@ def imagecallback(img):
         img_numpy = cv2.putText(img_numpy,text_to_image,(10,30),font, font_size, font_color, font_thickness, cv2.LINE_AA)
 
         # adding to time stamp log, every frame
-        timelog.write('%d,%f,%f,%f,%f,%f\n' % (img.header.seq,
+        timelog.write('%d,%f,%f,%f,%f,%f,%f\n' % (img.header.seq,
+                                               float(img.header.stamp.to_sec()),
                                                gps_t,
                                                box.bbox.center.x,
                                                box.bbox.center.y,
@@ -208,7 +209,7 @@ def init_detection_node():
 
     # initializing timelog
     timelog = open(savedir.joinpath('Metadata.csv'),'w')
-    timelog.write('FrameID,Timestamp,Center_x,Center_y,Width,Height\n')
+    timelog.write('FrameID,Timestamp_Jetson,Timestamp_GPS,Center_x,Center_y,Width,Height\n')
 
     # initializing node
     rospy.init_node('detectionnode', anonymous=False)

@@ -16,12 +16,12 @@ from pathlib import Path
 sys.path.append("goproapi")
 import re
 import numpy as np
-#--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
+#--------OPTIONS-------------#
 VIEW_IMG = False
 save_image = True
 save_format = '.avi'
+USE_DEWARPING=False # reduces fps if True
 #-----------------------------------------------------#
-
 
 # create saving directory
 gps_t = 0
@@ -41,6 +41,22 @@ else:
     new_run_num = 1
 savedir = maindir.joinpath('%s_run%02d_camera' % (stamp,new_run_num))
 os.makedirs(savedir)  
+
+
+# loading camera distortion parameters
+FILE = Path(__file__).resolve()
+cal_path = FILE.parent.joinpath('gopro_intrinsics.npz')
+cal = np.load(cal_path)
+intrinsics = dict(
+    mtx = cal['cam_matrix'],
+    dist = cal['distortion_coeff'],
+    crop = 75
+)
+
+h,w = 480,640
+intrinsics['newcameramtx'], intrinsics['roi'] = cv2.getOptimalNewCameraMatrix(intrinsics['mtx'], intrinsics['dist'], (w,h), 0, (w,h))
+
+
 
 #seems to find device automatically if connected? Why don't we do this?
 serialstring = 'DeviceSerialNumber'
@@ -84,6 +100,18 @@ def time_callback(gpstime):
     # print(gps_t)
     # print(rospy.get_time())
     # print(time.time())
+    
+def undistort(img,params):
+    # t1 = time.time()
+    crop_pix = params['crop']
+    dst = cv2.undistort(img, params['mtx'], params['dist'], None, params['newcameramtx'])
+    # crop the image
+    x, y, w, h = params['roi']
+    dst = dst[y:y+h, x:x+w]
+    # dst = dst[h//6:-h//6,w//6:-w//6]
+    dst = dst[crop_pix:-crop_pix,crop_pix:-crop_pix]
+    # print(f'Took {time.time()-t1} seconds for undistort')
+    return dst
 
 def publishimages():
     pub = rospy.Publisher('/camera/image', Image, queue_size=1)
@@ -112,7 +140,7 @@ def publishimages():
 
     # initializing timelog
     timelog = open(savedir.joinpath('Timestamps.csv'),'w')
-    timelog.write('FrameID,Timestamp\n')
+    timelog.write('FrameID,Timestamp_Jetson,Timestamp_GPS\n')
 
     try:
         result = True
@@ -156,14 +184,15 @@ def publishimages():
 
 
                 # adding to time stamp log
-                # timelog.write('%d,%f\n' % (img.header.seq,time.time()))
-                timelog.write('%d,%f\n' % (img.header.seq,gps_t))
+                timelog.write('%d,%f,%f\n' % (img.header.seq,float(img.header.stamp.to_sec()),gps_t))
   
                 if not ret:
                     print('Image capture with opencv unsuccessful')
                     
                 else:
-
+                    
+                    if USE_DEWARPING:
+                        img_raw = undistort(img_raw,intrinsics)
 
                     img.height,img.width = img_raw.shape[:-1]
                     # print('Time at acquisition')
@@ -207,7 +236,9 @@ def publishimages():
                                     fourcc=codec,
                                     fps=30,
                                     frameSize = (img_raw.shape[1],img_raw.shape[0]))
+                            # t1 = time.time()
                             video.write(img_raw)
+                            # print(f'Took {time.time()-t1} seconds for frame writing to video')
                         else:
                             cv2.imwrite(str(filename)+save_format,img_raw)
 
