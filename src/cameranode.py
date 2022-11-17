@@ -1,10 +1,10 @@
-#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
-# ######!/usr/bin/env python3 
+#!/usr/bin/env python3 
 
 # license removed for brevity
 from tkinter import image_types
 import rospy
 from sensor_msgs.msg import Image
+from sensor_msgs.msg import TimeReference
 import os, datetime
 # import PySpin
 import sys, subprocess, time
@@ -12,30 +12,40 @@ import cv2
 from goprocam import GoProCamera
 from goprocam import constants
 import queue, threading
-
-# sys.path.append("goproapi")
-
+from pathlib import Path
+sys.path.append("goproapi")
+import re
+import numpy as np
 #--------OPTION TO VIEW ACQUISITION IN REAL_TIME-------------#
-VIEW_IMG=False
+VIEW_IMG = False
 save_image = True
 save_format = '.avi'
 #-----------------------------------------------------#
 
 
-
-
+# create saving directory
+gps_t = 0
 username = os.getlogin( )
 tmp = datetime.datetime.now()
-stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
-    (tmp.year, tmp.month, tmp.day, 
-    tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/camera/' % (username,stamp) #script cannot create folder, must already exist when run
-os.makedirs(savedir)
+stamp = ("%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day))
+maindir = Path('/home/%s/1FeedbackControl' % username)
+runs_today = list(maindir.glob('*%s*_camera' % stamp))
+if runs_today:
+    runs_today = [str(name) for name in runs_today]
+    regex = 'run\d\d'
+    runs_today=re.findall(regex,''.join(runs_today))
+    runs_today = np.array([int(name[-2:]) for name in runs_today])
+    new_run_num = max(runs_today)+1
+else:
+    new_run_num = 1
+savedir = maindir.joinpath('%s_run%02d_camera' % (stamp,new_run_num))
+os.makedirs(savedir)  
 
 #seems to find device automatically if connected? Why don't we do this?
 serialstring = 'DeviceSerialNumber'
 #serialstring = '18285036'
-
+# /home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/goproapi/gopro_keepalive.py
 # bufferless VideoCapture
 class VideoCapture:
 
@@ -51,7 +61,8 @@ class VideoCapture:
         while True:
             ret, frame = self.cap.read()
             if not ret:
-                break
+                # break
+                continue
             if not self.q.empty():
                 try:
                     self.q.get_nowait()   # discard previous (unprocessed) frame
@@ -65,9 +76,19 @@ class VideoCapture:
         self.cap.release()
         return
 
+def time_callback(gpstime):
+    global gps_t
+    gps_t = float(gpstime.time_ref.to_sec())
+    # gps_t = gps_t
+    
+    # print(gps_t)
+    # print(rospy.get_time())
+    # print(time.time())
+
 def publishimages():
     pub = rospy.Publisher('/camera/image', Image, queue_size=1)
     rospy.init_node('cameranode', anonymous=False)
+    rospy.Subscriber('mavros/time_reference',TimeReference,time_callback)
 
     """
     This function acquires images from a device.
@@ -82,6 +103,7 @@ def publishimages():
     :rtype: bool
     """
 
+    capture_init()
 
     gpCam = GoProCamera.GoPro()
     #gpCam.gpControlSet(constants.Stream.BIT_RATE, constants.Stream.BitRate.B2_4Mbps)
@@ -89,7 +111,7 @@ def publishimages():
     device_serial_number = False
 
     # initializing timelog
-    timelog = open(savedir+'Timestamps.txt','w')
+    timelog = open(savedir.joinpath('Timestamps.csv'),'w')
     timelog.write('FrameID,Timestamp\n')
 
     try:
@@ -101,7 +123,7 @@ def publishimages():
         cap = VideoCapture("udp://127.0.0.1:10000") # stream from gopro wifi
         
 
-
+        capt1 = 0
         # Retrieve, convert, and save images
         i = 0
         first_image=True
@@ -111,8 +133,14 @@ def publishimages():
             try:
 
                 #  Retrieve next received image
-
+                
+                t1 = time.time()
                 img_raw = cap.read()
+
+                capt2 = time.time()
+                # print('Capture fps ~',1/(capt2-capt1))
+                capt1 = capt2
+
                 if img_raw is not None:
                     ret = True
                     if first_image:
@@ -128,7 +156,8 @@ def publishimages():
 
 
                 # adding to time stamp log
-                timelog.write('%d,%f\n' % (img.header.seq,time.time()))
+                # timelog.write('%d,%f\n' % (img.header.seq,time.time()))
+                timelog.write('%d,%f\n' % (img.header.seq,gps_t))
   
                 if not ret:
                     print('Image capture with opencv unsuccessful')
@@ -144,10 +173,15 @@ def publishimages():
 
                     # #get numpy image
                     # image_numpy = image_converted.GetNDArray()
+
+                    # print('Delay before showing',1e3*(time.time() - capt2))
+
                     if VIEW_IMG:
                         cv2.imshow('gopro',img_raw)
                         cv2.waitKey(1)
-
+                        # imgtmp = PILImage.fromarray(img_raw,'RGB')
+                        # imgtmp.show()
+                    # print('Delay including showing',1e3*(time.time() - capt2))
                     #assign image to ros structure
                     # img.data = image_numpy.flatten().tolist()
                     img.data = img_raw.flatten().tolist()
@@ -157,25 +191,25 @@ def publishimages():
                     if save_image:
                         # Create a unique filename
                         if device_serial_number:
-                            filename = savedir + ('Acquisition-%s-%06.0f' % (device_serial_number, i))
+                            filename = savedir.joinpath('Acquisition-%s-%06.0f' % (device_serial_number, i))
                         else:  # if serial number is empty
-                            filename = savedir + ('Acquisition-%06.0f' % i)
+                            filename = savedir.joinpath('Acquisition-%06.0f' % i)
 
 
                         if save_format=='.raw':
-                            fid = open(filename+save_format,'wb')
+                            fid = open(str(filename)+save_format,'wb')
                             fid.write(img_raw.flatten())
                             fid.close()
                         elif save_format == '.avi':
                             if i==1:
                                 codec = cv2.VideoWriter_fourcc('M','J','P','G')
-                                video = cv2.VideoWriter(savedir+'Acquisition'+save_format,
+                                video = cv2.VideoWriter(str(savedir.joinpath('Acquisition'+save_format)),
                                     fourcc=codec,
                                     fps=30,
                                     frameSize = (img_raw.shape[1],img_raw.shape[0]))
                             video.write(img_raw)
                         else:
-                            cv2.imwrite(filename+save_format,img_raw)
+                            cv2.imwrite(str(filename)+save_format,img_raw)
 
             except Exception as e:       
                 print('Error: %s' % e)
@@ -230,6 +264,18 @@ def publishimages():
 #         )
 #     )
 #     return cmd_init+cmd_main
+
+def capture_init():
+    # starts gopro streaming in background
+    
+    FILE = Path(__file__).resolve()
+    goproapi = Path(FILE.parents[1] / 'src/goproapi')  # gopro functions directory
+    cmd = str(goproapi.joinpath('gopro_keepalive.py'))
+    # subprocess.call(['python3',cmd])
+    with open(os.devnull, 'w') as fp:
+        output = subprocess.Popen('python3 ' + cmd, stdout=fp,shell=True)
+
+    return
 
 if __name__ == '__main__':
     try:

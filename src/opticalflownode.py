@@ -1,4 +1,4 @@
-#!/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
+#!/usr/bin/env python3 
 # # license removed for brevity
 import cv2 as cv
 import numpy as np
@@ -7,10 +7,13 @@ import rospy
 from rospy.client import init_node
 from sensor_msgs.msg import Image
 from vision_msgs.msg import BoundingBox2D,Detection2D
+from sensor_msgs.msg import TimeReference
 import os, datetime, time
-
+import re
 #------------OPTION TO TURN OFF OPTICAL FLOW-------#
 OPT_FLOW_OFF = False
+UPSCALE = False
+DRAW_FLOW = True
 #---------------------------------------------------#
 
 #--------OPTION TO VIEW FLOW RESULTS IN REAL_TIME-------------#
@@ -20,12 +23,13 @@ SAVE_FLOW = True
 
 #--------OPTION FOR RAFT OPTICAL FLOW------------#
 USE_RAFT=True # also option to save image of output
-USE_OUTSIDE_MEDIAN_COMP = False
-USE_INPAINTING = True
-USE_FILTER_FLOW = False
-USE_FILTER_COLOR = True
+USE_COMP = True    # use any background compensation at all
+USE_OUTSIDE_MEDIAN_COMP = True
+USE_INPAINTING_COMP = False # more precise (theoretically) background compensation within box
+USE_FILTER_FLOW = True # filters out small flow values
+USE_FILTER_COLOR = False # turn this False if not tracking smoke
 USE_HOMOGRAPHY = False
-USE_UNCERTAINTY = True
+USE_UNCERTAINTY = False
 USE_MIN_VECTORS_FILTER = False
 if USE_HOMOGRAPHY: USE_OUTSIDE_MEDIAN_COMP=False
 #-----------------------------------------------------#
@@ -33,21 +37,36 @@ if USE_HOMOGRAPHY: USE_OUTSIDE_MEDIAN_COMP=False
 if USE_RAFT:
     DEVICE = 'cuda'
     import sys
-    sys.path.append('/home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/RAFTcore')
+    FILE = Path(__file__).resolve()
+    RAFT_ROOT = Path(FILE.parents[1] / 'src/modules/RAFT')  # RAFT directory
+    if str(RAFT_ROOT) not in sys.path:
+        sys.path.append(str(RAFT_ROOT))  # add RAFT_ROOT to PATH
+    # sys.path.append('/home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/RAFTcore')
     from raft import RAFT
     from utils import flow_viz
     from utils.utils import InputPadder
     import torch
     import argparse
 
-
+gps_t = 0
+# create saving directory
 username = os.getlogin( )
 tmp = datetime.datetime.now()
-stamp = ("%02d-%02d-%02d__%02d-%02d-%02d" % 
-    (tmp.year, tmp.month, tmp.day, 
-    tmp.hour, tmp.minute, tmp.second))
-savedir = '/home/%s/1FeedbackControl/FeedbackControl_%s/flow/' % (username,stamp) 
-os.makedirs(savedir)
+stamp = ("%02d-%02d-%02d" % 
+    (tmp.year, tmp.month, tmp.day))
+maindir = Path('/home/%s/1FeedbackControl' % username)
+runs_today = list(maindir.glob('*%s*_flow' % stamp))
+if runs_today:
+    runs_today = [str(name) for name in runs_today]
+    regex = 'run\d\d'
+    runs_today=re.findall(regex,''.join(runs_today))
+    runs_today = np.array([int(name[-2:]) for name in runs_today])
+    new_run_num = max(runs_today)+1
+else:
+    new_run_num = 1
+savedir = maindir.joinpath('%s_run%02d_flow' % (stamp,new_run_num))
+os.makedirs(savedir) 
+
 
 global flowpub,flow,model_raft
 
@@ -56,7 +75,7 @@ skip=5
 def loopcallback(data):
     global datalist
     if rospy.Time.now() - data.source_img.header.stamp > rospy.Duration(5):
-        print("OpticalFlowNode: one of images is too old, dropping\n")
+        # print("OpticalFlowNode: one of images is too old, dropping\n")
         return
     if len(datalist)==0:
         if data.bbox.center.x == -1:
@@ -67,22 +86,34 @@ def loopcallback(data):
             datalist.append(data)
     else:
         dt = data.source_img.header.stamp - datalist[0].source_img.header.stamp
-        if dt > rospy.Duration(0.2):
-            if dt < rospy.Duration(5):
+        if dt > rospy.Duration(0.5):
+            if dt < rospy.Duration(1):
             
                 # second image with proper delay found, passing to optical flow
                 datalist.append(data)
+                # try:
                 flow = opticalflowmain()
                 flowpub.publish(flow)
+                    
+                # except:
+                #     print('Cropped image too small for OF')
+                # finally:
                 datalist=[]
             else:
-                print('Second image too late, emptying list')
+                # print('Second image too late, emptying list')
                 
                 # emptying the list of images to start fresh
                 datalist = []
-        else:
-            print('Second image too early')
-
+        # else:
+            # print('Second image too early')
+def time_callback(gpstime):
+    global gps_t
+    gps_t = float(gpstime.time_ref.to_sec())
+    # gps_t = gps_t
+    
+    # print(gps_t)
+    # print(rospy.get_time())
+    # print(time.time())
 
 def init_flownode():
     """initializing optical flow node
@@ -92,24 +123,21 @@ def init_flownode():
     print('Initializing optical flow node')
     rospy.init_node('opticalflownode', anonymous=False)
     flowpub = rospy.Publisher('/gaia/flow',BoundingBox2D,queue_size=1)
+    rospy.Subscriber('mavros/time_reference',TimeReference,time_callback)
     flow = BoundingBox2D() # using this becaue not sure other ros message formats to use
     
 
-    if USE_RAFT:        
+    if USE_RAFT and not OPT_FLOW_OFF:        
         parser = argparse.ArgumentParser()
         parser.add_argument('--model', help="restore checkpoint")
         parser.add_argument('--path', help="dataset for evaluation")
         parser.add_argument('--small', action='store_true', help='use small model')
         parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
         parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
-        args = parser.parse_args(['--model','/home/ffil/gaia-feedback-control/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
+        args = parser.parse_args(['--model',str(RAFT_ROOT.joinpath('raft-small.pth')),
                                     '--path','',
                                     '--small'])
-        # args.model = '/home/ffil/gaia-ws/src/GAIA-drone-control/src/RAFTcore/raft-small.pth',
-        # args.path = ''
-        # args.small = True
-        # args.mixed_precision = False
-        # args.alternate_corr = False
+
         
         print('Initializing RAFT model')
         model_raft = flow_init(args)
@@ -157,17 +185,12 @@ def opticalflowmain():
     
     boundingbox_pixels = [yy-h//2, yy+h//2, xx-w//2, xx+w//2]
     
-    # savename = savedir+'OpticalFlow-%06.0f.jpg' % 
     # run optical flow analysis to get single vector
     flow_x,flow_y = opticalflowfunction(img1,img2,boundingbox_pixels,savenum=datalist[0].source_img.header.seq)
 
     # normalized displacements by the size of frame
     flow.size_x = flow_x/img1.shape[1]
     flow.size_y = flow_y/img1.shape[0]
-    
-    
-    
-    
     
     return flow
 
@@ -185,7 +208,7 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     """
     if USE_RAFT:
         global model_raft
-    print('computing optical flow')
+    # print('computing optical flow')
     t1 = time.time()
     color_filter_thresh = 180
     median_skipping = 1
@@ -195,15 +218,24 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     # computing flow outside the bounding box
     time_init = time.time()
 
-    if USE_RAFT:
-        flow_outside,_,_ = RAFTflow(img1.copy(),img2.copy())
+    if y2-y1>0.1*img1.shape[0] and x2-x1>0.1*img1.shape[1]:
+        if USE_COMP:
+            if USE_RAFT:
+                flow_outside,_,_ = RAFTflow(img1.copy(),img2.copy())
+            else:
+                flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(img1,img2,None) # using defaults for now
+            # print('Took %f seconds' % (time.time() - time_init))
+            flow_inside = flow_outside[y1:y2,x1:x2,:].copy()
+            flow_outside[y1:y2,x1:x2,:] = np.nan
+        else:
+            if USE_RAFT:
+                flow_inside,_,_ = RAFTflow(img1[y1:y2,x1:x2,:].copy(),img2[y1:y2,x1:x2,:].copy())
+                # y1 = 
+            else:
+                flow_inside = cv.optflow.calcOpticalFlowDenseRLOF(img1[y1:y2,x1:x2,:],img2[y1:y2,x1:x2,:],None) # using defaults for now
     else:
-        
-        flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(img1,img2,None) # using defaults for now
-    # print('Took %f seconds' % (time.time() - time_init))
-    flow_inside = flow_outside[y1:y2,x1:x2,:].copy()
-    flow_outside[y1:y2,x1:x2,:] = np.nan
-    # flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::median_skipping])
+        return 0,0
+        # flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::median_skipping])
     # flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::median_skipping])
 
     # # compensating for external motion using flow outside bounding box
@@ -216,42 +248,49 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
     # # filter out if not very white (questionable approach, not likely to be generalizable but ok for now)
     # color_filter = np.mean(img1[y1:y2,x1:x2,:],axis=2) < color_filter_thresh
     # flow_inside[color_filter] = np.nan
+    if USE_COMP:
+        if USE_INPAINTING_COMP:
 
-    if USE_INPAINTING:
+            tmp = time.time()
 
-        tmp = time.time()
-
-        u1 = flow_outside[:,:,0].copy()
-        u2 = flow_outside[:,:,1].copy()
-        rescale = 4
-        u1 = cv.resize(u1,[u1.shape[1]//rescale,u1.shape[0]//rescale])
-        u2 = cv.resize(u2,[u2.shape[1]//rescale,u2.shape[0]//rescale])
-
-
-        u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-        u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-        
-        u1 = cv.resize(u1,[img1.shape[1],img1.shape[0]])
-        u2 = cv.resize(u2,[img1.shape[1],img1.shape[0]])
+            u1 = flow_outside[:,:,0].copy()
+            u2 = flow_outside[:,:,1].copy()
+            rescale = 4
+            u1 = cv.resize(u1,(u1.shape[1]//rescale,u1.shape[0]//rescale))
+            u2 = cv.resize(u2,(u2.shape[1]//rescale,u2.shape[0]//rescale))
 
 
-        print('Inpainting time: %f' % (time.time()-tmp))
+            u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+            u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+            
+            u1 = cv.resize(u1,(img1.shape[1],img1.shape[0]))
+            u2 = cv.resize(u2,(img1.shape[1],img1.shape[0]))
 
 
-        flow_inside[:,:,0] -=u1[y1:y2,x1:x2]
-        flow_inside[:,:,1] -=u2[y1:y2,x1:x2]
-        flow_outside_x = np.nanmean(flow_inside[:,:,0].flatten())
-        flow_outside_y = np.nanmean(flow_inside[:,:,1].flatten())
-    elif USE_OUTSIDE_MEDIAN_COMP:
-        
+            # print('Inpainting time: %f' % (time.time()-tmp))
 
-        flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
-        flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
-        flow_inside[:,:,0] -= flow_outside_x
-        flow_inside[:,:,1] -= flow_outside_y
+
+            flow_inside[:,:,0] -=u1[y1:y2,x1:x2]
+            flow_inside[:,:,1] -=u2[y1:y2,x1:x2]
+            flow_outside_x = np.nanmean(u1[y1:y2,x1:x2].flatten())
+            flow_outside_y = np.nanmean(u2[y1:y2,x1:x2].flatten())
+            if np.isnan(flow_outside_x):
+                flow_outside_x = flow_outside_y = 0
+
+        elif USE_OUTSIDE_MEDIAN_COMP:
+            
+
+            flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
+            flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
+            if np.isnan(flow_outside_x):
+                flow_outside_x = flow_outside_y = 0
+            flow_inside[:,:,0] -= flow_outside_x
+            flow_inside[:,:,1] -= flow_outside_y
+    else:
+        flow_outside_x = 0
+        flow_outside_y = 0
     
-    if np.isnan(flow_outside_x):
-        flow_outside_x = flow_outside_y = 0
+
 
     if USE_FILTER_FLOW:
         # filter out low displacements
@@ -294,78 +333,95 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
             if count < 1e4:
                 flow_inside = np.full_like(flow_inside,np.nan)
             print('Vector count time: %f' % (time.time()-tmp))
-
+    
+    flow_inside[np.isposinf(flow_inside)] = np.nan
+    flow_inside[np.isneginf(flow_inside)] = np.nan
+    
     if any(~np.isnan(flow_inside.flatten())):
         boxflow_x,boxflow_y = np.nanmedian(flow_inside[:,:,0].flatten()),np.nanmedian(flow_inside[:,:,1].flatten())
     else:
         boxflow_x = boxflow_y = 0
     t2 = time.time()
-    print('Optical flow computation took %f seconds' % (t2-time_init))
+    # print('Optical flow computation took %f seconds' % (t2-time_init))
     
     # drawing plot
-    tmp = img1.copy()
+    if DRAW_FLOW:
+        tmp = img1.copy()
         # drawing flow arrows
-    step = 5
-    for ii in range(0,flow_inside.shape[1],step):
-        for jj in range(0,flow_inside.shape[0],step):
-            if not any(np.isnan(flow_inside[jj,ii,:])):
-                tmp = cv.arrowedLine(
-                    tmp,
-                    pt1 = np.array([ii,jj]) + np.array([x1,y1]),
-                    pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int),
-                    color=[0,255,0],
-                    thickness=1,
-                    tipLength=0.5
-                )
-    
-    
-    if np.isnan(boxflow_x):
-        boxflow_x = 0
-    if np.isnan(boxflow_y):
-        boxflow_y = 0
-    # adding bounding box
-    tmp = cv.rectangle(tmp,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
+        step = 5
+        for ii in range(0,flow_inside.shape[1],step):
+            for jj in range(0,flow_inside.shape[0],step):
+                if not any(np.isnan(flow_inside[jj,ii,:])):
+                    pt1 = np.array([ii,jj]) + np.array([x1,y1])
+                    pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int)
+                    tmp = cv.arrowedLine(
+                        tmp,
+                        pt1=tuple(pt1),
+                        pt2=tuple(pt2),
+                        color=[0,255,0],
+                        thickness=1,
+                        tipLength = 0.5
+                    )
+        
+        
+        if np.isnan(boxflow_x):
+            boxflow_x = 0
+        if np.isnan(boxflow_y):
+            boxflow_y = 0
+        # adding bounding box
+        tmp = cv.rectangle(tmp,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
 
 
+        # print(boxflow_x,boxflow_y)
+        if boxflow_x != 0 and boxflow_y !=0:# drawing bulk motion arrow in bounding box
+            going_to = np.array([(x1+x2)/2,(y1+y2)/2],dtype=np.uint32) + np.array([boxflow_x,boxflow_y],dtype=np.uint32)
+            middle = np.array([(x1+x2)//2,(y1+y2)//2],dtype=np.uint32)
+            going_to[0] = min(max(0,going_to[0]),tmp.shape[1])
+            going_to[1] = min(max(0,going_to[1]),tmp.shape[0])
+            tmp = cv.arrowedLine(
+                tmp,
+                pt1 = tuple(middle),
+                pt2 = tuple(going_to),
+                color=[255,0,0],
+                thickness=5,
+                tipLength = 0.5
+            )
 
-    if boxflow_x != 0 and boxflow_y !=0:# drawing bulk motion arrow in bounding box
+        # drawing bulk motion arrow from entire frame
+        pt1 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32)
+        pt2 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32) + np.array([flow_outside_x,flow_outside_y],dtype=np.uint32)
+            
         tmp = cv.arrowedLine(
             tmp,
-            pt1 = np.array([(x1+x2)//2,(y1+y2)//2],dtype=np.uint32),
-            pt2 = np.array([(x1+x2)/2,(y1+y2)/2],dtype=np.uint32) + 10*np.array([boxflow_x,boxflow_y],dtype=np.uint32),
-            color=[255,0,0],
+            pt1 = tuple(pt1),
+            pt2 = tuple(pt2),
+            color=[255,255,0],
             thickness=5,
             tipLength=0.5
         )
 
-    # drawing bulk motion arrow from entire frame
-    tmp = cv.arrowedLine(
-        tmp,
-        pt1 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32),
-        pt2 = np.array([img1.shape[1]//2,img1.shape[0]//2],dtype=np.uint32) + 10*np.array([flow_outside_x,flow_outside_y],dtype=np.uint32),
-        color=[255,255,0],
-        thickness=5,
-        tipLength=0.5
-    )
-
-    # plt.imshow(cv.cvtColor(tmp,cv.COLOR_BGR2RGB))
-    # plt.show()
+        # plt.imshow(cv.cvtColor(tmp,cv.COLOR_BGR2RGB))
+        # plt.show()
     result = tmp
 
     if VIEW_IMG:
-        t1 = time.time()
         cv.imshow('gopro',result)
         cv.waitKey(1)
-        t2 = time.time()
         # print('Optical flow plotting time %f' % (t2-t1))
 
 
         
     if SAVE_FLOW:
         t1 = time.time()
-        savename = savedir+'OpticalFlow-%06.0f.jpg' % savenum
-        cv.imwrite(savename,tmp)
-        np.savez((savedir+'OpticalFlow-%06.0f' % savenum),flow_outside_x,flow_outside_y,flow_inside,boxflow_x,boxflow_y)
+        savename = savedir.joinpath('OpticalFlow-%06.0f.jpg' % savenum)
+        cv.imwrite(str(savename),tmp)
+        np.savez(savedir.joinpath('OpticalFlow-%06.0f' % savenum),
+                                    flow_outside_x=flow_outside_x,
+                                    flow_outside_y=flow_outside_y,
+                                    flow_inside=flow_inside,
+                                    boxflow_x=boxflow_x,
+                                    boxflow_y=boxflow_y,
+                                    bbox=[x1,x2,y1,y2])
         t2 = time.time()
         # print('Optical flow saving time %f' % (t2-t1))
         # if VIEW_IMG:
@@ -376,6 +432,12 @@ def opticalflowfunction(img1,img2,boundingbox,savenum):
 
 def RAFTflow(img1,img2):
     global model_raft
+    # print('Image size before pad:')
+    # print(img1.shape)
+    #if UPSCALE:
+        #img1 = cv.resize(img1,(img1.shape[1]*2,img1.shape[0]*2))
+        #img2 = cv.resize(img2,(img1.shape[1]*2,img1.shape[0]*2))
+        
     with torch.no_grad():
 
         img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
@@ -385,27 +447,37 @@ def RAFTflow(img1,img2):
 
         padder = InputPadder(img1.shape)
         img1, img2 = padder.pad(img1, img2)
-
+        # print(img1.size())
         _,flow = model_raft(img1,img2,iters=20,test_mode=True)
+        flow = padder.unpad(flow)
         flow = flow[0].permute(1,2,0).cpu().numpy()
+        # print('Flow size after unpad:')
+        # print(flow.shape)
         img1 = img1[0].permute(1,2,0).cpu().numpy()
         img2 = img2[0].permute(1,2,0).cpu().numpy()
-    return flow,img1,img2
+    if UPSCALE:
+        return flow[::2,::2,:]/2,img1[::2,::2,:],img2[::2,::2,:]
+    else:
+        return flow,img1,img2
    
 def flow_init(args):
+    global model_raft
     model_raft = torch.nn.DataParallel(RAFT(args))
     model_raft.load_state_dict(torch.load(args.model))
 
     model_raft = model_raft.module
     model_raft.to(DEVICE)
     model_raft.eval()
+    print('Computing flow with dummy images to finish initialize')
+    x,y = np.meshgrid(np.linspace(0,100,640),np.linspace(0,100,480))
+    img1 = np.sum(np.stack((x,y),2),axis=2)
+    img2 = img1+50
+    img1 = cv.cvtColor(img1.astype(np.uint8),cv.COLOR_GRAY2BGR)
+    img2 = cv.cvtColor(img2.astype(np.uint8),cv.COLOR_GRAY2BGR)
+# cv.imshow('stack',np.concatenate((img1,img2),axis=1))
+# cv.waitKey(0)
+    RAFTflow(img1,img2)
     return model_raft
-
-
-
-
-    # take the median values of what is left as the bulk smoke flow direction
-    # result = np.array([np.nanmedian(flow_inside[:,:,0].flatten()),np.nanmedian(flow_inside[:,:,1].flatten())])
 
     
 

@@ -3,14 +3,14 @@
 #You may need to enter the root password multiple times during the execution depending on execution speed (e.g, on Jetsons)
 
 # create virtual environment
-mkdir ~/gaia-feedback-control
-cd ~/gaia-feedback-control
-python3.6 -m venv gaia-fc-env
-cd ~
+#mkdir ~/gaia-feedback-control
+#cd ~/gaia-feedback-control
+#python3.6 -m venv gaia-fc-env
+#cd ~
+py_env=python3
 
-# install all python modules to virtual environment
-py_env=/home/ffil/gaia-feedback-control/gaia-fc-env/bin/python3
 #upgrade pip, required for installing matplotlib and possibly some others
+sudo apt-get install python3-pip
 $py_env -m pip install --upgrade pip
 
 sudo apt update
@@ -36,8 +36,8 @@ if ! grep -Fxq "source ~/gaia-feedback-control/devel/setup.bash" ~/.bashrc;
 fi
 
 #This is a convenience call to change permission on /dev/ttyTHS1 so this command does not have to be run before launching Mavros (or our code that uses Mavros). As a consequence you will have to enter the root password whenever you open the terminal, so you may want to delete it if not using the repo frequently.
-if ! grep -Fxq "sudo chmod 666 /dev/ttyTHS0" ~/.bashrc; 
-    then echo "sudo chmod 666 /dev/ttyTHS0" >> ~/.bashrc; 
+if ! grep -Fxq "sudo chmod 666 /dev/ttyACM0" ~/.bashrc; 
+    then echo "sudo chmod 666 /dev/ttyACM0" >> ~/.bashrc; 
 fi
 
 sudo ifconfig enp15s0 mtu 9000
@@ -103,7 +103,7 @@ sudo apt-get install -y libfreetype6-dev #must be installed before pillow or cau
 #attempt to use actual requirements.txt for now
 $py_env -m pip install matplotlib
 # $py_env -m pip install numpy
-$py_env -m pip install opencv-contrib-python
+#$py_env -m pip install opencv-python
 # $py_env -m pip install Pillow
 # $py_env -m pip install PyYAML
 $py_env -m pip install requests
@@ -115,7 +115,7 @@ $py_env -m pip install tensorboard
 $py_env -m pip install pandas
 $py_env -m pip install seaborn
 $py_env -m pip install thop
-
+$py_env -m pip install numpy==1.19.4
 #end yolov5 dependencies ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 #Convenience installs to prepare for installing spinnaker:
