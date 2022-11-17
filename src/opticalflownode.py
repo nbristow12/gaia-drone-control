@@ -21,7 +21,7 @@ OPT_FLOW_OFF = False
 
 #--------OPTION TO VIEW FLOW RESULTS IN REAL_TIME-------------#
 VIEW_IMG=False # also option to save image of output
-DRAW_FLOW = False
+DRAW_FLOW = True
 SAVE_FLOW = True
 DEBUG=False
 #-----------------------------------------------------#

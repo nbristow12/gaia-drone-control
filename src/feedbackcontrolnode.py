@@ -28,7 +28,7 @@ forward_scan_option = False # this is primarily for smoke generator and grenade 
 fixed_heading_option = True # this mode tells the drone to sit above the smoke for a solid 5 seconds in order to get a heading from the mean flow direction, and then it goes to a fixed height and moves in that direction
 controlled_descent_option = True
 
-debugging = True
+debugging = False
 if debugging:
     print('########### DEBUGGING MODE #############')
 #---------------------------------------------------#
@@ -480,7 +480,10 @@ def dofeedbackcontrol():
                 hspeed = -horizontalerror * traverse_gain # this only gets used if yaw mode is off
             #---------------------------------#
 
-            
+        elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(0.5)) and moving_to_set_alt:
+            # if its been more than half a second without detection during descent, stop lateral movement
+            hspeed = 0
+            fspeed = 0
         
         elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)) and not moving_to_set_alt: # added condition here so that even if smoke isn't seen, descent continues after survey
             # if nothing detected for 5 seconds, reset gimbal position, and if more than 10 seconds, go back to manual control from RC
@@ -501,11 +504,7 @@ def dofeedbackcontrol():
             if (rospy.Time.now() - time_lastbox < rospy.Duration(10)):
                 rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
                 rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
-        
-        #assign to messages, publish
-        # fid.write('%s,%f,%f,%f,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
-        #     (time.time(),alt,gps_x,gps_y,str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
-        # t1 = time.time()
+
         
         # out of loop, send commands
         
@@ -551,6 +550,7 @@ def dofeedbackcontrol():
             twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
             twistmsg.angular.z = 0
         
+        # publishing
         twistmsg.linear.z = vspeed  # vertical motion
         rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
         rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
@@ -563,11 +563,13 @@ def dofeedbackcontrol():
         if print_alt:
             print(f"Altitude: {alt} m")
         
+        # writing control states and data to csv
         save_log()
         
         rate.sleep()
 
 def rise_up(dz = 5,vz=1):
+    # simple loop to go up or down, usually to get above object
     print(f'Rising {dz}m at {vz}m/s...')
     global twistpub, twistmsg
     twistmsg.linear.x = 0
@@ -582,6 +584,9 @@ def rise_up(dz = 5,vz=1):
     return
 
 def survey_flow():
+    """
+    separated loop that keeps the drone fixed while observing the flow in the bounding box below
+    """
     global surveying
     global twistpub, twistmsg,rcmsg,rcpub
     # function for starting a survey of the flow from above, and then calling a heading to travel towards
@@ -674,6 +679,9 @@ def survey_flow():
 
         
 def sample_along_heading(fspeed_surv,hspeed_surv):
+    """
+    keeps fixed altitude and moves along a prescribed direction obtain from flow survey prior
+    """
     global twistpub, twistmsg,rcmsg,rcpub
     # function for setting the flow direction obtained after surveying
     global sampling
@@ -740,6 +748,9 @@ def sample_along_heading(fspeed_surv,hspeed_surv):
 
 
 def save_log():
+    """
+    writing data to csv
+    """
     fid.write('%f,%f,%f,%f,%f,%s,%s,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
         (time.time(),gps_t,gps_x,gps_y,alt,str(surveying),str(sampling),str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
 
