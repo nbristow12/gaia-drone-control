@@ -69,6 +69,8 @@ $py_env -m pip install rospkg catkin_pkg
 
 #install necessary python packages
 $py_env -m pip install Cython
+sudo apt install ninja-build # makes builds faster
+$py_env -m pip install ninja
 $py_env -m pip install numpy==1.19.4 #1.19.5 causes issue with matplotlib install
 
 #appears to be necessary for scipy
