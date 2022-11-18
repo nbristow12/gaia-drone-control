@@ -71,7 +71,7 @@ rosrun GAIA-drone-control detectionnode_trt.py
 rosrun GAIA-drone-control opticalflownode.py
 ```
 
-To track smoke, person, or car, just change the "target_object" variable in detectionnode_trt.py
+To track smoke, person, or car, just change the "target_name" variable in detectionnode_trt.py
 
 Recording a rosbag of the data produced by the nodes (including image data) can be done with the following: (records to current directory, very large files)
 ```bash
