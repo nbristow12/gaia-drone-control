@@ -13,8 +13,8 @@ py_env=python3
 sudo apt-get install python3-pip
 $py_env -m pip install --upgrade pip
 
-sudo apt update
-sudo apt-get update
+sudo apt update -y
+sudo apt-get update -y
 
 #### Install ros_melodic ==========================================================
 # instructions from http://wiki.ros.org/melodic/Installation/Ubuntu
