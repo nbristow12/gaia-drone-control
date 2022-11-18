@@ -61,7 +61,7 @@ Quick start added some lines to ~/.bashrc to complete the sourcing of the repo a
 ```bash
 roslaunch GAIA-drone-control track.launch
 ```
-Single nodes can be run by launch a roscore in one terminal and running the individual node scripts with rosrun, each in a separate termainl as well:
+To troubleshoot, single nodes can be run by launching a roscore in one terminal and running the individual node scripts with rosrun, each in a separate terminal. Each node simply runs like a python script and can be terminated, editted, and restarted without interrupting the others (apart from pausing the stream of published/subscribed data).
 ```bash
 roscore
 roslaunch GAIA-drone-control mavros-telem-drone.launch
