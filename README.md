@@ -59,9 +59,17 @@ You MUST restart the device before spinnaker will work, but then the Jetson shou
 ## Running Car/Smoke Tracking:
 Quick start added some lines to ~/.bashrc to complete the sourcing of the repo and adding write permissions to the appropriate serial port for communicating with the drone via Mavros (drone and wiring configuration covered in Appendix A). This means the code is ready to run upon opening the terminal and can simply be launched with a single command, e.g.:
 ```bash
-roslaunch GAIA-drone-control track-car.launch
+roslaunch GAIA-drone-control track.launch
 ```
-Single nodes can be run by launch a roscore in one terminal and running the individual node scripts with rosrun.
+Single nodes can be run by launch a roscore in one terminal and running the individual node scripts with rosrun, each in a separate termainl as well:
+```bash
+roscore
+roslaunch GAIA-drone-control mavros-telem-drone.launch
+rosrun GAIA-drone-control cameranode.py
+rosrun GAIA-drone-control feedbackcontrolnode.py
+rosrun GAIA-drone-control detectionnode_trt.py
+rosrun GAIA-drone-control opticalflownode.py
+```
 
 Recording a rosbag of the data produced by the nodes (including image data) can be done with the following: (records to current directory, very large files)
 ```bash
