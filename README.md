@@ -56,7 +56,7 @@ catkin build
 
 You MUST restart the device before spinnaker will work, but then the Jetson should be ready to run any of the ROS and yolo_v5 code used for feedback control.
 
-## Running Car/Smoke Tracking:
+## Running Feedback Control:
 Quick start added some lines to ~/.bashrc to complete the sourcing of the repo and adding write permissions to the appropriate serial port for communicating with the drone via Mavros (drone and wiring configuration covered in Appendix A). This means the code is ready to run upon opening the terminal and can simply be launched with a single command, e.g.:
 ```bash
 roslaunch GAIA-drone-control track.launch
@@ -70,6 +70,8 @@ rosrun GAIA-drone-control feedbackcontrolnode.py
 rosrun GAIA-drone-control detectionnode_trt.py
 rosrun GAIA-drone-control opticalflownode.py
 ```
+
+To track smoke, person, or car, just change the "target_object" variable in detectionnode_trt.py
 
 Recording a rosbag of the data produced by the nodes (including image data) can be done with the following: (records to current directory, very large files)
 ```bash
