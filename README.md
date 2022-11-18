@@ -73,15 +73,20 @@ rosrun GAIA-drone-control opticalflownode.py
 
 To track smoke, person, or car, just change the "target_name" variable in detectionnode_trt.py
 
-Recording a rosbag of the data produced by the nodes (including image data) can be done with the following: (records to current directory, very large files)
-```bash
-rosbag record -a --split --duration=60
-```
 
 To end collection you can either kill execution in each terminal with Ctrl-C if they are executing locally, or if the tasks went to the background (as when starting via ssh then disconnecting during a field deployment) use:
 ```bash
 rosnode kill --all
 ```
+### Recording data
+
+Each node is set up to automatically create new directories and run numbers based on the date, with video files and meta data recorded continuously. This allows the most simple analysis of the data collected.
+
+Alternatively, you can record a rosbag. Recording a rosbag of the data produced by the nodes (including image data) can be done with the following: (records to current directory, very large files)
+```bash
+rosbag record -a --split --duration=60
+```
+
 
 ## Appendix A: Configuring the Drone
 In general, the drone configuration is very similar to the standard GAIA drone configuration, but with a few channels moved around to make gimbal control accessible to the drone via Mavros since it can only send commands on the first 8 channels.
