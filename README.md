@@ -18,7 +18,7 @@ git clone https://github.umn.edu/HongFlowFieldImagingLab/GAIA-drone-control.git
 
 ```bash
 cd ~/gaia-feedback-control/src/GAIA-drone-control/install_scripts
-./install_dependencies.sh
+bash install_dependencies.sh
 ```
 The install script is configured to install ROS and the dependencies needed to run yolov5. 
 
