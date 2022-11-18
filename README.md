@@ -93,7 +93,7 @@ See "ControllerSettings.jpg" in the Setup Resources google drive folder for chan
 https://drive.google.com/drive/folders/1MrDqN7BMAj4Jl0IVvFGdhrfC5YlxuMcb?usp=sharing (NSF-MRI-GAIA/Subproject 1.4 - Drone Feedback Control/Resources/Setup Resources)
 
 ### Drone Parameter Setup
-There is also a drone parameter file in the same Google Drive folder that has the rc#_option parameters configured to perform the correct actions for the switch assignments. (It is a copy of the parameters from GAIA-4, which was used for this testing.)
+There is also a drone parameter file in the same Google Drive folder that has the rc#_option parameters configured to perform the correct actions for the switch assignments. (It is a copy of the parameters from GAIA-4, which was used for this testing.) If using Jetson Xavier, you must also enable all SR0 parameters via Mission Planner config tab. These should all have values set to 10 (hz).
 
 ### Gimbal Wiring/Setup
 
@@ -103,7 +103,9 @@ There is a gimbal setup GUI in Mission Planner under Setup/Optional/Camera Gimba
 
 ### Telemetry Cable Wiring
 
-The telemetry cable is wired to connect the Jetson Nano's UART_2 (/dev/ttyTHS1) to the Pixhawk Telemetry 2 port.
+For the Jetson Xavier, the only way to connect is via Pixhawk USB telemetry to Jetson USB port (/dev/ttyACM0). UART2 for unknown reason allows for write from Jetson, but not read from Pixhawk. However, to enable communication over Pixhawk USB, you must enable all SR0 parameters via Mission Planner config tab. These should all have values set to 10 (hz).
+
+For the Jetson Nano, this issue does not come up. The telemetry cable is wired to connect the Jetson Nano's UART_2 (/dev/ttyTHS1) to the Pixhawk Telemetry 2 port. This telemetry port is enabled already.
 
 The following link was used to identify the correct pins and create wiring for connecting to the Telemetry 2 port. The extra cables that come with telemetry radios are excellent sources of the appropriate connector, otherwise you'll just need to order some telemetry cables.
 
