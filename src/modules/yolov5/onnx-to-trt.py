@@ -10,7 +10,7 @@ import onnx
 """
 
 def main():
-    modelname = 'smoke'
+    modelname = 'smoke_BW'
 
     batches = 1
     channels = 3

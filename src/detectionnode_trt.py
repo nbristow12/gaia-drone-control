@@ -20,7 +20,7 @@ import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
 
 #------------------------OPTIONS---------------------#
-target_name = 'person' # options: smoke,car,person
+target_name = 'smoke' # options: smoke,car,person
 engine = True # using tensorrt
 half = True
 max_delay = 0.5 # [seconds] delay between last detectiona nd current image after which to just drop images to catch up
@@ -183,9 +183,9 @@ def init_detection_node():
     
     if target_name == 'smoke':
         if engine:
-            weights=YOLOv5_ROOT / 'smoke_1-3-352-448.engine'
+            weights=YOLOv5_ROOT / 'smoke_BW_1-3-352-448.engine'
         else:
-            weights=YOLOv5_ROOT / 'smoke.pt'
+            weights=YOLOv5_ROOT / 'smoke_BW.pt'
     else:
         if engine:
             weights=YOLOv5_ROOT / 'yolov5s_1-3-352-448.engine'

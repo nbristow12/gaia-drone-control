@@ -13,11 +13,11 @@ def main():
     torch.cuda.empty_cache()
     # modelname = 'raft_small'
     # pt_path = '%s.pth' % modelname
-    modelname = 'yolov5s'
+    modelname = 'smoke_BW'
     pt_path = '%s.pt' % modelname
 
-    half = False
-    int8trt = True
+    half = True
+    int8trt = False
     batches = 1
     channels = 3
     hh = 352
