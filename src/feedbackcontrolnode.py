@@ -7,6 +7,7 @@ from geometry_msgs.msg import Twist
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import TimeReference
 from mavros_msgs.msg import OverrideRCIn
+from mavros_msgs.msg import State
 import math
 from math import atan2
 import os,re
@@ -74,7 +75,7 @@ setpoint_size_approach = 1.5 # only relevant for hybrid mode, for getting close 
 
 # optical flow parameters
 alt_flow = 3 # altitude at which to stop descent and keep constant for optical flow
-alt_sampling = 2 # altitude setpoint at which to do a controlled sampling based on mean flow direction
+alt_sampling = 1.5 # altitude setpoint at which to do a controlled sampling based on mean flow direction
 
 
 # gain values
@@ -83,10 +84,11 @@ yaw_gain = 1
 gimbal_pitch_gain = -40 # previously -100, this needs to be adjusted depending on teh frame rate for detection (20fps=-50gain, while saving video; 30fps=-25gain with no saving)
 gimbal_yaw_gain = 12 # previously 30, adjusting now for faster yolo
 
-# traverse_gain = 2.5
-traverse_gain = 3
+traverse_gain = 2.5
+# traverse_gain = 3
 flow_gain = 10 # previously 0.25 when it worked ok but was a bit fast, wind speed < 5mph
-flow_survey_gain = 1 # made flow gain much larger from simple calculation (10 pixel movement measured when drone should respond about 1.5 m/s ish)
+# flow_survey_gain = 300 # made flow gain much larger from simple calculation (10 pixel movement measured when drone should respond about 1.5 m/s ish)
+flow_survey_gain = 60 # gain per meter of altitude
 # vertical_gain = 3 # half of the size_gain value
 vertical_gain = 2 # half of the size_gain value
 # new gain for error term for pitch
@@ -95,7 +97,7 @@ pitcherror_gain_min = 0.75 # sets a floor on how much teh drone can be slowed do
 # limit parameters
 yaw_center = 1500
 pitch_up=1000 # this value seems to drift sometimes
-alt_min = 2 # minimum allowable altitude
+alt_min = 0.5 # minimum allowable altitude
 alt_delta=0 # how high to move after crossing munumum alt
 limit_speed = 2
 limit_speed_v = 1 # different speed limit for changing altitude
@@ -110,6 +112,7 @@ fscan_speed = 1
 sizeerror_flow_thresh = 0.1 # this is the fraction of the setpoint size that the error needs to be within in order to initiate optical flow
 
 # initialize
+guided_mode = False
 horizontalerror = 0 
 verticalerror=0 
 sizeerror=0 
@@ -176,6 +179,18 @@ def pose_callback(pose):
     gps_y = pose.pose.position.y
     # print(yaw)
     
+
+def state_callback(state):
+    """
+    check if drone FCU is in loiter or guided mode
+    """
+    global guided_mode
+    if state.mode == 'GUIDED':
+        guided_mode = True
+    else:
+        guided_mode = False
+    # print(f'Guided mode: {guided_mode}')
+    # print(state.mode)
 def time_callback(gpstime):
     global gps_t
     gps_t = float(gpstime.time_ref.to_sec())
@@ -286,6 +301,7 @@ def dofeedbackcontrol():
     rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
     rospy.Subscriber('/mavros/time_reference',TimeReference,time_callback)
     rospy.Subscriber('/gaia/flow',BoundingBox2D,flow_callback)
+    rospy.Subscriber('/mavros/state',State,state_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
     rcpub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=1)
     
@@ -318,7 +334,19 @@ def dofeedbackcontrol():
         #feedback control algorithm
         #don't publish if message is old
         # if (time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5)) or debugging:
-        if (time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
+        if not guided_mode:
+            pitchcommand = pitch_init 
+            yawcommand = yaw_center
+            fspeed = hspeed = vspeed = 0
+            yaw_mode = True # turn yaw back on
+            above_object = False
+            moving_to_set_alt = False
+            OPT_FLOW = False # turn off teh optical flow mode
+            OPT_COMPUTE_FLAG = False
+            if forward_scan_option:
+                # turn this initial mode back on
+                forward_scan = True
+        elif (time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
 
             # t1 = time.time()
             
@@ -618,12 +646,14 @@ def survey_flow():
     print('#-------------------Beginning survey---------------------#')
     surveying = True
     while True: # collect samples until a certain number reached, and for at least 5 seconds
+        if not guided_mode:
+            return 0,0
         if len(vx) >= survey_samples and (time.time() - t0 > 5): # do this at least 5 seconds duration
             break
         if flow_t > t1 and flow_x != flow_prev: # only use flow values after this sequence starts
                 if ~np.isnan(flow_x):   # only use if not nan
-                    vx.append(flow_x*flow_survey_gain)
-                    vy.append(flow_y*flow_survey_gain)
+                    vx.append(flow_x*flow_survey_gain*(alt-3))
+                    vy.append(flow_y*flow_survey_gain*(alt-3)) # gain is attenuated or amplified by altitude
                     
                 flow_prev = flow_x
                 
@@ -644,8 +674,8 @@ def survey_flow():
             # print('latest flow time',flow_t)
 
     
-    fspeed_surv = np.nanmean(vx)
-    hspeed_surv = np.nanmean(vy)
+    fspeed_surv = np.nanmean(vy) # vertical velocity
+    hspeed_surv = np.nanmean(vx)  # horizontal
     print('#-----------------------Got heading-------------#')
     print('Samples collected: vx')
     print(vx)
