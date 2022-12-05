@@ -97,6 +97,16 @@ cd torchvision/
 $py_env setup.py install
 cd ..
 
+# installing onnx runtime
+# Download pip wheel from location mentioned above
+cd ~
+wget https://nvidia.box.com/shared/static/pmsqsiaw4pg9qrbeckcbymho6c01jj4z.whl -O onnxruntime_gpu-1.11.0-cp36-cp36m-linux_aarch64.whl
+
+# Install pip wheel for runtime
+$py_env -m pip install onnxruntime_gpu-1.11.0-cp36-cp36m-linux_aarch64.whl
+# install onnx package
+$py_env -m pip install onnx==1.11.0
+
 sudo apt-get install -y libfreetype6-dev #must be installed before pillow or causes "the imaging_ft c module is not installed" error for yolo. If not remove ALL instances of pillow and reinstall with 'sudo pip3 install --no-cache-dir pillow'
 
 # sudo pip3 install -r ~/gaia-ws/src/GAIA-drone-control/install_scripts/requirements.txt #install with requirements.txt, must be in install_dependencies.sh directory when calling script
