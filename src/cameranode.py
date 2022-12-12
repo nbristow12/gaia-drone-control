@@ -158,98 +158,103 @@ def publishimages():
         img = Image()
         while not rospy.is_shutdown():
             i += 1
-            try:
+            # try:
 
                 #  Retrieve next received image
                 
-                t1 = time.time()
-                img_raw = cap.read()
+            t1 = time.time()
+            img_raw = cap.read()
 
-                capt2 = time.time()
-                # print('Capture fps ~',1/(capt2-capt1))
-                capt1 = capt2
+            capt2 = time.time()
+            # print('Capture fps ~',1/(capt2-capt1))
+            capt1 = capt2
 
-                if img_raw is not None:
-                    ret = True
-                    if first_image:
-                        print('#-------------------------------------------#')
-                        print('Image capture successfully started')
-                        print('#-------------------------------------------#')
-                    first_image = False
-                else:
-                    ret = False
+            if img_raw is not None:
+                ret = True
+                if first_image:
+                    print('#-------------------------------------------#')
+                    print('Image capture successfully started')
+                    print('#-------------------------------------------#')
+                first_image = False
+            else:
+                ret = False
+            
+            # print(img_raw.shape)
+
+            img.header.seq = i
+            img.header.stamp = rospy.Time.now()
+
+
+            # adding to time stamp log
+            timelog.write('%d,%f,%f\n' % (img.header.seq,float(img.header.stamp.to_sec()),gps_t))
+
+            if not ret:
+                print('Image capture with opencv unsuccessful')
                 
-                img.header.seq = i
-                img.header.stamp = rospy.Time.now()
+            else:
+                
+                if USE_DEWARPING:
+                    img_raw = undistort(img_raw,intrinsics)
+
+                img.height,img.width = img_raw.shape[:-1]
+                # print('Time at acquisition')
+                # print('Image %d' % img.header.seq)
+                # print(img.header.stamp)
 
 
-                # adding to time stamp log
-                timelog.write('%d,%f,%f\n' % (img.header.seq,float(img.header.stamp.to_sec()),gps_t))
-  
-                if not ret:
-                    print('Image capture with opencv unsuccessful')
-                    
-                else:
-                    
-                    if USE_DEWARPING:
-                        img_raw = undistort(img_raw,intrinsics)
+                # #get numpy image
+                # image_numpy = image_converted.GetNDArray()
 
-                    img.height,img.width = img_raw.shape[:-1]
-                    # print('Time at acquisition')
-                    # print('Image %d' % img.header.seq)
-                    # print(img.header.stamp)
+                # print('Delay before showing',1e3*(time.time() - capt2))
 
+                if VIEW_IMG:
+                    cv2.imshow('gopro',img_raw)
+                    cv2.waitKey(1)
+                    # imgtmp = PILImage.fromarray(img_raw,'RGB')
+                    # imgtmp.show()
+                # print('Delay including showing',1e3*(time.time() - capt2))
+                #assign image to ros structure
+                # img.data = image_numpy.flatten().tolist()
+                img.data = img_raw.flatten().tolist()
+                #send image on topic
+                pub.publish(img)
 
-                    # #get numpy image
-                    # image_numpy = image_converted.GetNDArray()
-
-                    # print('Delay before showing',1e3*(time.time() - capt2))
-
-                    if VIEW_IMG:
-                        cv2.imshow('gopro',img_raw)
-                        cv2.waitKey(1)
-                        # imgtmp = PILImage.fromarray(img_raw,'RGB')
-                        # imgtmp.show()
-                    # print('Delay including showing',1e3*(time.time() - capt2))
-                    #assign image to ros structure
-                    # img.data = image_numpy.flatten().tolist()
-                    img.data = img_raw.flatten().tolist()
-                    #send image on topic
-                    pub.publish(img)
-
-                    if save_image:
-                        # Create a unique filename
-                        if device_serial_number:
-                            filename = savedir.joinpath('Acquisition-%s-%06.0f' % (device_serial_number, i))
-                        else:  # if serial number is empty
-                            filename = savedir.joinpath('Acquisition-%06.0f' % i)
+                if save_image:
+                    # Create a unique filename
+                    if device_serial_number:
+                        filename = savedir.joinpath('Acquisition-%s-%06.0f' % (device_serial_number, i))
+                    else:  # if serial number is empty
+                        filename = savedir.joinpath('Acquisition-%06.0f' % i)
 
 
-                        if save_format=='.raw':
-                            fid = open(str(filename)+save_format,'wb')
-                            fid.write(img_raw.flatten())
-                            fid.close()
-                        elif save_format == '.avi':
-                            if i==1:
-                                codec = cv2.VideoWriter_fourcc('M','J','P','G')
-                                video = cv2.VideoWriter(str(savedir.joinpath('Acquisition'+save_format)),
-                                    fourcc=codec,
-                                    fps=30,
-                                    frameSize = (img_raw.shape[1],img_raw.shape[0]))
-                            # t1 = time.time()
-                            video.write(img_raw)
-                            # print(f'Took {time.time()-t1} seconds for frame writing to video')
-                        else:
-                            cv2.imwrite(str(filename)+save_format,img_raw)
+                    if save_format=='.raw':
+                        fid = open(str(filename)+save_format,'wb')
+                        fid.write(img_raw.flatten())
+                        fid.close()
+                    elif save_format == '.avi':
+                        if i==1:
+                            codec = cv2.VideoWriter_fourcc('M','J','P','G')
+                            video = cv2.VideoWriter(str(savedir.joinpath('Acquisition'+save_format)),
+                                fourcc=codec,
+                                fps=30,
+                                frameSize = (img_raw.shape[1],img_raw.shape[0]))
+                        # t1 = time.time()
+                        video.write(img_raw)
+                        # print(f'Took {time.time()-t1} seconds for frame writing to video')
+                    else:
+                        cv2.imwrite(str(filename)+save_format,img_raw)
 
-            except Exception as e:       
-                print('Error: %s' % e)
+            # except Exception as e:       
+            #     print('Error: %s' % e)
 
         #  End acquisition
 
         cap.release()
-
-    
+        video.release()
+    except rospy.ROSInterruptException:
+        cap.release()
+        # if save_format=='.avi':
+        #     video.release()
 
     except Exception as e:       
         print('Error: %s' % e)

@@ -183,9 +183,9 @@ def init_detection_node():
     
     if target_name == 'smoke':
         if engine:
-            weights=YOLOv5_ROOT / 'smoke_BW_1-3-352-448.engine'
+            weights=YOLOv5_ROOT / 'smoke_BW_new_1-3-352-448.engine'
         else:
-            weights=YOLOv5_ROOT / 'smoke_BW.pt'
+            weights=YOLOv5_ROOT / 'smoke_BW_new.pt'
     else:
         if engine:
             weights=YOLOv5_ROOT / 'yolov5s_1-3-352-448.engine'

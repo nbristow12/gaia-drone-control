@@ -123,9 +123,9 @@ if USE_RAFT:
     model_raft.eval()
 
 if engine:
-    yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW_1-3-352-448.engine')
+    yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW_new_1-3-352-448.engine')
 else:
-    yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW.pt')
+    yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW_new.pt')
 
 
 

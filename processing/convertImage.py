@@ -11,9 +11,10 @@ from distutils.util import strtobool
 import os
 from file_io import load_image
 
-ext_from = input('Old image format (e.g., png, tiff, jpeg): ')
-
-ext_to = input('New image format (e.g., png, tiff, jpeg): ')
+# ext_from = input('Old image format (e.g., png, tiff, jpeg): ')
+ext_from = 'raw'
+ext_to = 'tif'
+# ext_to = input('New image format (e.g., png, tiff, jpeg): ')
 
 GRAYSCALE = False
 flip_y = False
@@ -24,14 +25,15 @@ def main():
     #-----GUI method------#
     root = Tk()
     root.withdraw()
-    folder = Path(filedialog.askdirectory())
-    files = list(folder.rglob('*.%s' % ext_from)) # includes all files in subfolders with extension
-    # filelist = filedialog.askopenfilenames(title='Choose files')
-    # files = [Path(name) for name in filelist]
-    # folder = files[0].parent
+    # folder = Path(filedialog.askdirectory())
+    # files = list(folder.rglob('*.%s' % ext_from)) # includes all files in subfolders with extension
+    filelist = filedialog.askopenfilenames(initialdir = '/home/ffil/Data',title='Choose files')
+    files = [Path(name) for name in filelist]
+    folder = files[0].parent
     
-    save_folder = Path(filedialog.askdirectory(title='Choose save directory'))
-
+    # save_folder = Path(filedialog.askdirectory(title='Choose save directory'))
+    save_folder = folder.joinpath(ext_to)
+    os.makedirs(save_folder,exist_ok=True)
     print('Converting %d image files' % len(files))
 
     for ii,path in enumerate(files):
