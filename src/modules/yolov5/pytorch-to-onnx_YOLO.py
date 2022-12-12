@@ -13,7 +13,7 @@ def main():
     torch.cuda.empty_cache()
     # modelname = 'raft_small'
     # pt_path = '%s.pth' % modelname
-    modelname = 'smoke_BW'
+    modelname = 'smoke_BW_new'
     pt_path = '%s.pt' % modelname
 
     half = True
