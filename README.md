@@ -18,7 +18,7 @@ git clone https://github.umn.edu/HongFlowFieldImagingLab/GAIA-drone-control.git
 
 ```bash
 cd ~/gaia-feedback-control/src/GAIA-drone-control/install_scripts
-./install_dependencies.sh
+bash install_dependencies.sh
 ```
 The install script is configured to install ROS and the dependencies needed to run yolov5. 
 
@@ -56,22 +56,37 @@ catkin build
 
 You MUST restart the device before spinnaker will work, but then the Jetson should be ready to run any of the ROS and yolo_v5 code used for feedback control.
 
-## Running Car/Smoke Tracking:
+## Running Feedback Control:
 Quick start added some lines to ~/.bashrc to complete the sourcing of the repo and adding write permissions to the appropriate serial port for communicating with the drone via Mavros (drone and wiring configuration covered in Appendix A). This means the code is ready to run upon opening the terminal and can simply be launched with a single command, e.g.:
 ```bash
-roslaunch GAIA-drone-control track-car.launch
+roslaunch GAIA-drone-control track.launch
 ```
-Single nodes can be run by launch a roscore in one terminal and running the individual node scripts with rosrun.
-
-Recording a rosbag of the data produced by the nodes (including image data) can be done with the following: (records to current directory, very large files)
+To troubleshoot, single nodes can be run by launching a roscore in one terminal and running the individual node scripts with rosrun, each in a separate terminal. Each node simply runs like a python script and can be terminated, editted, and restarted without interrupting the others (apart from pausing the stream of published/subscribed data).
 ```bash
-rosbag record -a --split --duration=60
+roscore
+roslaunch GAIA-drone-control mavros-telem-drone.launch
+rosrun GAIA-drone-control cameranode.py
+rosrun GAIA-drone-control feedbackcontrolnode.py
+rosrun GAIA-drone-control detectionnode_trt.py
+rosrun GAIA-drone-control opticalflownode.py
 ```
+
+To track smoke, person, or car, just change the "target_name" variable in detectionnode_trt.py
+
 
 To end collection you can either kill execution in each terminal with Ctrl-C if they are executing locally, or if the tasks went to the background (as when starting via ssh then disconnecting during a field deployment) use:
 ```bash
 rosnode kill --all
 ```
+### Recording data
+
+Each node is set up to automatically create new directories and run numbers based on the date, with video files and meta data recorded continuously. This allows the most simple analysis of the data collected.
+
+Alternatively, you can record a rosbag. Recording a rosbag of the data produced by the nodes (including image data) can be done with the following: (records to current directory, very large files)
+```bash
+rosbag record -a --split --duration=60
+```
+
 
 ## Appendix A: Configuring the Drone
 In general, the drone configuration is very similar to the standard GAIA drone configuration, but with a few channels moved around to make gimbal control accessible to the drone via Mavros since it can only send commands on the first 8 channels.
@@ -83,7 +98,7 @@ See "ControllerSettings.jpg" in the Setup Resources google drive folder for chan
 https://drive.google.com/drive/folders/1MrDqN7BMAj4Jl0IVvFGdhrfC5YlxuMcb?usp=sharing (NSF-MRI-GAIA/Subproject 1.4 - Drone Feedback Control/Resources/Setup Resources)
 
 ### Drone Parameter Setup
-There is also a drone parameter file in the same Google Drive folder that has the rc#_option parameters configured to perform the correct actions for the switch assignments. (It is a copy of the parameters from GAIA-4, which was used for this testing.)
+There is also a drone parameter file in the same Google Drive folder that has the rc#_option parameters configured to perform the correct actions for the switch assignments. (It is a copy of the parameters from GAIA-4, which was used for this testing.) If using Jetson Xavier, you must also enable all SR0 parameters via Mission Planner config tab. These should all have values set to 10 (hz).
 
 ### Gimbal Wiring/Setup
 
@@ -93,7 +108,9 @@ There is a gimbal setup GUI in Mission Planner under Setup/Optional/Camera Gimba
 
 ### Telemetry Cable Wiring
 
-The telemetry cable is wired to connect the Jetson Nano's UART_2 (/dev/ttyTHS1) to the Pixhawk Telemetry 2 port.
+For the Jetson Xavier, the only way to connect is via Pixhawk USB telemetry to Jetson USB port (/dev/ttyACM0). UART2 for unknown reason allows for write from Jetson, but not read from Pixhawk. However, to enable communication over Pixhawk USB, you must enable all SR0 parameters via Mission Planner config tab. These should all have values set to 10 (hz).
+
+For the Jetson Nano, this issue does not come up. The telemetry cable is wired to connect the Jetson Nano's UART_2 (/dev/ttyTHS1) to the Pixhawk Telemetry 2 port. This telemetry port is enabled already.
 
 The following link was used to identify the correct pins and create wiring for connecting to the Telemetry 2 port. The extra cables that come with telemetry radios are excellent sources of the appropriate connector, otherwise you'll just need to order some telemetry cables.
 

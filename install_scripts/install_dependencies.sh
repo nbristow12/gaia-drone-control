@@ -13,8 +13,8 @@ py_env=python3
 sudo apt-get install python3-pip
 $py_env -m pip install --upgrade pip
 
-sudo apt update
-sudo apt-get update
+sudo apt update -y
+sudo apt-get update -y
 
 #### Install ros_melodic ==========================================================
 # instructions from http://wiki.ros.org/melodic/Installation/Ubuntu
@@ -69,6 +69,8 @@ $py_env -m pip install rospkg catkin_pkg
 
 #install necessary python packages
 $py_env -m pip install Cython
+sudo apt install ninja-build # makes builds faster
+$py_env -m pip install ninja
 $py_env -m pip install numpy==1.19.4 #1.19.5 causes issue with matplotlib install
 
 #appears to be necessary for scipy
@@ -96,6 +98,16 @@ git clone --branch v0.9.1 https://github.com/pytorch/vision torchvision
 cd torchvision/
 $py_env setup.py install
 cd ..
+
+# installing onnx runtime
+# Download pip wheel from location mentioned above
+cd ~
+wget https://nvidia.box.com/shared/static/pmsqsiaw4pg9qrbeckcbymho6c01jj4z.whl -O onnxruntime_gpu-1.11.0-cp36-cp36m-linux_aarch64.whl
+
+# Install pip wheel for runtime
+$py_env -m pip install onnxruntime_gpu-1.11.0-cp36-cp36m-linux_aarch64.whl
+# install onnx package
+$py_env -m pip install onnx==1.11.0
 
 sudo apt-get install -y libfreetype6-dev #must be installed before pillow or causes "the imaging_ft c module is not installed" error for yolo. If not remove ALL instances of pillow and reinstall with 'sudo pip3 install --no-cache-dir pillow'
 

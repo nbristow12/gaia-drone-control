@@ -3,10 +3,10 @@
 from ast import And
 import rospy
 from vision_msgs.msg import BoundingBox2D,Detection2D
-from geometry_msgs.msg import Twist
-from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import TimeReference
-from mavros_msgs.msg import OverrideRCIn
+from geometry_msgs.msg import Twist, PoseStamped
+from sensor_msgs.msg import TimeReference,NavSatFix
+from mavros_msgs.msg import OverrideRCIn, State
+from std_msgs.msg import Float64
 import math
 from math import atan2
 import os,re
@@ -26,6 +26,7 @@ yaw_mode = True # whether or not to yaw the entire drone during motion
 USE_PITCH_ERROR = True
 forward_scan_option = False # this is primarily for smoke generator and grenade experiments, otherwise hybrid mode should work well over a more static plume
 fixed_heading_option = True # this mode tells the drone to sit above the smoke for a solid 5 seconds in order to get a heading from the mean flow direction, and then it goes to a fixed height and moves in that direction
+controlled_descent_option = True
 
 debugging = False
 if debugging:
@@ -50,8 +51,7 @@ else:
 savedir = maindir.joinpath('%s_run%02d_fc-data' % (stamp,new_run_num))
 os.makedirs(savedir)  
 fid = open(savedir.joinpath('Feedbackdata.csv'),'w')
-fid.write('Time_Jetson,GPS_t,GPS_x,GPS_y,GPS_z,Surveying,MoveUp,AboveObject,Pitch,Size_error,OptFlow_On,Flow_x,Flow_y,Vspeed,Fspeed,Hspeed\n')
-
+fid.write('Timestamp_Jetson,Timestamp_GPS,GPS_x,GPS_y,GPS_z,GPS_lat,GPS_long,GPS_alt_rel,Surveying,Sampling,MoveUp,AboveObject,Pitch,Size_error,OptFlow_On,Flow_x,Flow_y,Vspeed,Fspeed,Hspeed\n')
 
 print_pitch = False
 print_size_error = False
@@ -62,8 +62,7 @@ print_flow=True
 print_alt = False
 print_time = False
 
-forward_scan = True # this should be on to start
-surveying = False
+
 
 # print_
 # bounding box options
@@ -74,7 +73,8 @@ setpoint_size_approach = 1.5 # only relevant for hybrid mode, for getting close 
 
 # optical flow parameters
 alt_flow = 3 # altitude at which to stop descent and keep constant for optical flow
-alt_sampling = 2 # altitude setpoint at which to do a controlled sampling based on mean flow direction
+alt_sampling = 1.5 # altitude setpoint at which to do a controlled sampling based on mean flow direction
+alt_min = 0.5 # minimum allowable altitude
 
 
 # gain values
@@ -83,10 +83,11 @@ yaw_gain = 1
 gimbal_pitch_gain = -40 # previously -100, this needs to be adjusted depending on teh frame rate for detection (20fps=-50gain, while saving video; 30fps=-25gain with no saving)
 gimbal_yaw_gain = 12 # previously 30, adjusting now for faster yolo
 
-# traverse_gain = 2.5
-traverse_gain = 3
+traverse_gain = 2.5
+# traverse_gain = 3
 flow_gain = 10 # previously 0.25 when it worked ok but was a bit fast, wind speed < 5mph
-flow_survey_gain = 100 # made flow gain much larger from simple calculation (10 pixel movement measured when drone should respond about 1.5 m/s ish)
+# flow_survey_gain = 300 # made flow gain much larger from simple calculation (10 pixel movement measured when drone should respond about 1.5 m/s ish)
+flow_survey_gain = 60 # gain per meter of altitude
 # vertical_gain = 3 # half of the size_gain value
 vertical_gain = 2 # half of the size_gain value
 # new gain for error term for pitch
@@ -95,7 +96,6 @@ pitcherror_gain_min = 0.75 # sets a floor on how much teh drone can be slowed do
 # limit parameters
 yaw_center = 1500
 pitch_up=1000 # this value seems to drift sometimes
-alt_min = 2 # minimum allowable altitude
 alt_delta=0 # how high to move after crossing munumum alt
 limit_speed = 2
 limit_speed_v = 1 # different speed limit for changing altitude
@@ -105,11 +105,12 @@ limit_yawchange = 100
 limit_max_yaw = yaw_center+500
 limit_min_yaw = yaw_center-500
 move_up_speed=0.5
-descent_speed = -0.3
+alt_set_appr_speed = -0.5
 fscan_speed = 1
 sizeerror_flow_thresh = 0.1 # this is the fraction of the setpoint size that the error needs to be within in order to initiate optical flow
 
 # initialize
+guided_mode = False
 horizontalerror = 0 
 verticalerror=0 
 sizeerror=0 
@@ -120,9 +121,14 @@ flow_x = flow_y = flow_t = 0
 yaw = 0
 yawrate = 0
 move_up = False # initialized value
+moving_to_set_alt = False # only used after optical flow survey
 alt = 10 # initialized value outside the safegaurd
 gps_x = gps_y = gps_t = 0
+gps_lat = gps_long = gps_alt = gps_alt_rel = 0
 above_object = False
+sampling = False
+forward_scan = True # this should be on to start
+surveying = False
 OPT_FLOW=False
 OPT_COMPUTE_FLAG = False
 MOVE_ABOVE = False
@@ -166,12 +172,24 @@ def pose_callback(pose):
     r,p,y = euler_from_quaternion(q.x,q.y,q.z,q.w)
     yaw = y
     alt = pose.pose.position.z
-    if print_alt:
-        print(f"Altitude: {alt} m")
+    # if print_alt:
+    print(f"Altitude: {alt} m")
     gps_x = pose.pose.position.x
     gps_y = pose.pose.position.y
     # print(yaw)
     
+
+def state_callback(state):
+    """
+    check if drone FCU is in loiter or guided mode
+    """
+    global guided_mode
+    if state.mode == 'GUIDED':
+        guided_mode = True
+    else:
+        guided_mode = False
+    # print(f'Guided mode: {guided_mode}')
+    # print(state.mode)
 def time_callback(gpstime):
     global gps_t
     gps_t = float(gpstime.time_ref.to_sec())
@@ -180,6 +198,17 @@ def time_callback(gpstime):
     # print(gps_t)
     # print(rospy.get_time())
     # print(time.time())
+def gps_callback(gpsglobal):
+    global gps_lat,gps_long, gps_alt
+    gps_lat = gpsglobal.latitude
+    gps_long = gpsglobal.longitude
+    gps_alt = gpsglobal.altitude
+    print(f'gps_alt {gps_alt}')
+    
+def rel_alt_callback(altrel):
+    global gps_alt_rel
+    gps_alt_rel = altrel.data # relative altitude just from GPS data
+    print(f'gps_alt_rel {gps_alt_rel}')
 
 
 def boundingbox_callback(box):
@@ -209,12 +238,12 @@ def boundingbox_callback(box):
             # print('Vertical error: %f' % verticalerror)
             pitchdelta = verticalerror * gimbal_pitch_gain
             pitchdelta = min(max(pitchdelta,-limit_pitchchange),limit_pitchchange)
-            print(f"Pitch command,delta: {pitchcommand},{pitchdelta}")
+            # print(f"Pitch command,delta: {pitchcommand},{pitchdelta}")
             pitchcommand += pitchdelta
             pitchcommand = min(max(pitchcommand,1000),2000)
             yawdelta = horizontalerror * gimbal_yaw_gain
             yawdelta = min(max(yawdelta,-limit_yawchange),limit_yawchange)
-            print(f"Yaw command, delta: {yawcommand},{yawdelta}")
+            # print(f"Yaw command, delta: {yawcommand},{yawdelta}")
             yawcommand += yawdelta
             yawcommand = min(max(yawcommand,1000),2000)
         if print_size_error:
@@ -269,6 +298,7 @@ def dofeedbackcontrol():
     global above_object, forward_scan
     global yaw_mode,OPT_FLOW,OPT_COMPUTE_FLAG,MOVE_ABOVE
     global move_up, USE_PITCH_ERROR
+    global moving_to_set_alt
     global hspeed,vspeed,fspeed
     global yawrate
     global horizontalerror,verticalerror
@@ -280,7 +310,10 @@ def dofeedbackcontrol():
     rospy.Subscriber('/gaia/bounding_box', Detection2D, boundingbox_callback)
     rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
     rospy.Subscriber('/mavros/time_reference',TimeReference,time_callback)
+    rospy.Subscriber('/mavros/global_position/global',NavSatFix,gps_callback)
+    rospy.Subscriber('/mavros/global_position/rel_alt',Float64,rel_alt_callback)
     rospy.Subscriber('/gaia/flow',BoundingBox2D,flow_callback)
+    rospy.Subscriber('/mavros/state',State,state_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
     rcpub = rospy.Publisher('/mavros/rc/override', OverrideRCIn, queue_size=1)
     
@@ -312,11 +345,21 @@ def dofeedbackcontrol():
 
         #feedback control algorithm
         #don't publish if message is old
-        if (time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5)) or debugging:
-        #---------DEBUGGING---------#
-        # if debugging:
-        # if True:    
-        #---------------------------#
+        # if (time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5)) or debugging:
+        if not guided_mode:
+            pitchcommand = pitch_init 
+            yawcommand = yaw_center
+            fspeed = hspeed = vspeed = 0
+            yaw_mode = True # turn yaw back on
+            above_object = False
+            moving_to_set_alt = False
+            OPT_FLOW = False # turn off teh optical flow mode
+            OPT_COMPUTE_FLAG = False
+            if forward_scan_option:
+                # turn this initial mode back on
+                forward_scan = True
+        elif (time_lastbox != None and rospy.Time.now() - time_lastbox < rospy.Duration(.5)):
+
             # t1 = time.time()
             
             # safeguard for vertical motion
@@ -388,36 +431,38 @@ def dofeedbackcontrol():
                 if debugging:
                     above_object=True
                 #-------------------------#
-                if above_object and fixed_heading_option:
+                if above_object and fixed_heading_option and not moving_to_set_alt: # only do this if not already moving to setpoint
                     
-                    survey_flow()
-                    print('DONELAKSJFLDKJALSKFJAS')
-                    suveying = False # reporting end of survey
+                    fspeed_surv,hspeed_surv = survey_flow()
+                    moving_to_set_alt = True # reporting end of survey
                     fspeed = hspeed = vspeed = 0
                     continue
 
-                # initialize optical flow if above object and if we have lowered to desired height
-                # desired height can either be determined by the altitude choice or the proximity accuracy
-                if above_object and (alt < alt_flow or sizeerror < sizeerror_flow_thresh*setpoint_size):
-                    if OPT_FLOW_MASTER:
-                        OPT_FLOW = True # switch to optical flow feedback control mode
-                        if not OPT_COMPUTE_FLAG: # if optical flow data hasn't been received yet, errors should be kept at zero
-                            # horizontalerror = verticalerror = 0
-                            print('Reinitializing hspeed and fspeed to zero when beginning opt flow')
-                            horizontalerror = verticalerror = 0
+                # REMOVED SINCE NOT USING OPTICAL FLOW FOR ACTIVE FEEDBACK CONTROL ANYMORE
+                # # initialize optical flow if above object and if we have lowered to desired height
+                # # desired height can either be determined by the altitude choice or the proximity accuracy
+                # if above_object and (alt < alt_flow or sizeerror < sizeerror_flow_thresh*setpoint_size):
+                #     if OPT_FLOW_MASTER:
+                #         OPT_FLOW = True # switch to optical flow feedback control mode
+                #         if not OPT_COMPUTE_FLAG: # if optical flow data hasn't been received yet, errors should be kept at zero
+                #             # horizontalerror = verticalerror = 0
+                #             print('Reinitializing hspeed and fspeed to zero when beginning opt flow')
+                #             horizontalerror = verticalerror = 0
                             
-                # lateral movement (hspeed > 0 moves right)
-                if OPT_FLOW and OPT_COMPUTE_FLAG:
-                    hspeed += -horizontalerror * flow_gain
-                else:
-                    hspeed = -horizontalerror * traverse_gain
+                # # lateral movement (hspeed > 0 moves right)
+                # if OPT_FLOW and OPT_COMPUTE_FLAG:
+                #     hspeed += -horizontalerror * flow_gain
+                # else:
+                #     hspeed = -horizontalerror * traverse_gain
+                hspeed = -horizontalerror * traverse_gain
                 # forward movement   (fspeed > 0 move forward)
                 if above_object: # top-view, determining forward movement based on 
-                    if OPT_FLOW and OPT_COMPUTE_FLAG:
-                        fspeed += verticalerror * flow_gain
+                    # if OPT_FLOW and OPT_COMPUTE_FLAG:
+                    #     fspeed += verticalerror * flow_gain
                        
-                    else:
-                        fspeed = verticalerror * traverse_gain
+                    # else:
+                    #     fspeed = verticalerror * traverse_gain
+                    fspeed = verticalerror * traverse_gain
                         
                 else: # side-view, determining approach speed based on size of bounding box
                     fspeed = sizeerror * size_gain
@@ -432,13 +477,16 @@ def dofeedbackcontrol():
                 # vertical movement depending on the minimum altitude safeguard
                 if above_object:
                    
-                    if OPT_FLOW: # keep at steady height during optical flow
-                        vspeed=0
-                    else:
-                        if forward_scan_option: # in this mode, vertical motion will just be steady, and the focus is on horizontal
-                            vspeed = descent_speed # this does better with very elongated plumes?
-                        else:
-                            vspeed = -sizeerror * vertical_gain # size error is negative because you want to move down (negative velocity) to get closer
+                    # if OPT_FLOW: # keep at steady height during optical flow
+                    #     vspeed=0
+                    # else:
+                    #     if forward_scan_option: # in this mode, vertical motion will just be steady, and the focus is on horizontal
+                    #         vspeed = -alt_set_appr_speed # this does better with very elongated plumes?
+                    #     else:
+                    #         vspeed = -sizeerror * vertical_gain # size error is negative 
+
+                    if not fixed_heading_option:
+                        vspeed = -sizeerror * vertical_gain # size error is negative because you want to move down (negative velocity) to get closer
                         
                 else:
                     vspeed=0
@@ -471,42 +519,13 @@ def dofeedbackcontrol():
                 yawrate = ((yawcommand - yaw_center)/1000)*yaw_gain
                 hspeed = -horizontalerror * traverse_gain # this only gets used if yaw mode is off
             #---------------------------------#
-            # out of loop, send commands
-            #bound controls to ranges
-            fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
-            hspeed = min(max(hspeed,-limit_speed),limit_speed)
-            vspeed = min(max(vspeed,-limit_speed_v),limit_speed_v) # vertical speed
-            yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
-            yawcommand = min(max(yawcommand,1000),2000)
-            pitchcommand = min(max(pitchcommand,1000),2000)
-            
-            # print('fpeed:',fspeed)
-            # print('dt',time.time()-t1)
 
-
-            if yaw_mode:
-                twistmsg.linear.x = math.cos(yaw)*fspeed
-                twistmsg.linear.y = math.sin(yaw)*fspeed
-                twistmsg.angular.z = yawrate
-            else:
-                twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
-                twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
-                twistmsg.angular.z = 0
-            
-            twistmsg.linear.z = vspeed  # adding vertical motion
-            rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
-            rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
-            twistpub.publish(twistmsg)
-            rcpub.publish(rcmsg)
-            if print_pitch:
-                print('Pitch command: %f' % (pitchcommand))
-            if print_yawrate:
-                print('Yaw rate: %f' % yawrate)
-            if print_alt:
-                print(f"Altitude: {alt} m")
-            
+        elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(0.5)) and moving_to_set_alt:
+            # if its been more than half a second without detection during descent, stop lateral movement
+            hspeed = 0
+            fspeed = 0
         
-        elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)):
+        elif time_lastbox != None and (rospy.Time.now() - time_lastbox > rospy.Duration(5)) and not moving_to_set_alt: # added condition here so that even if smoke isn't seen, descent continues after survey
             # if nothing detected for 5 seconds, reset gimbal position, and if more than 10 seconds, go back to manual control from RC
             # also reinitializes other settings
             # print('#--------------RESETTING....------------#')
@@ -525,16 +544,73 @@ def dofeedbackcontrol():
             if (rospy.Time.now() - time_lastbox < rospy.Duration(10)):
                 rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
                 rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
+
         
-        #assign to messages, publish
-        # fid.write('%s,%f,%f,%f,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
-        #     (time.time(),alt,gps_x,gps_y,str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
-        # t1 = time.time()
+        # out of loop, send commands
+        
+        # check if altitude setpoint reached
+        if fixed_heading_option and moving_to_set_alt:
+            alt_diff = alt - alt_sampling
+
+            
+
+            if debugging: alt_diff = 0
+            
+            if abs(alt_diff) < 0.5:
+                print(f'Reached setpoint alt at {alt} m')
+                vspeed = 0 # desired alttitude reached
+                moving_to_set_alt = False
+                sample_along_heading(fspeed_surv,hspeed_surv) # start sampling route
+                rise_up(dz=5) # get out of smoke
+            elif alt_diff < 0: # too low
+                vspeed = abs(alt_set_appr_speed) # force to be positive
+                print(f'Moving to setpoint alt at {vspeed} m/s')
+            elif alt_diff > 0: # too high
+                vspeed = -abs(alt_set_appr_speed) # force to be negative (move down)
+                print(f'Moving to setpoint alt at {vspeed} m/s')
+            
+        #bound controls to ranges
+        fspeed = min(max(fspeed,-limit_speed),limit_speed) #lower bound first, upper bound second
+        hspeed = min(max(hspeed,-limit_speed),limit_speed)
+        vspeed = min(max(vspeed,-limit_speed_v),limit_speed_v) # vertical speed
+        yawrate = min(max(yawrate,-limit_yawrate),limit_yawrate)
+        yawcommand = min(max(yawcommand,1000),2000)
+        pitchcommand = min(max(pitchcommand,1000),2000)
+        
+        # print('fpeed:',fspeed)
+        # print('dt',time.time()-t1)
+
+        # horizontal motion
+        if yaw_mode:
+            twistmsg.linear.x = math.cos(yaw)*fspeed
+            twistmsg.linear.y = math.sin(yaw)*fspeed
+            twistmsg.angular.z = yawrate
+        else:
+            twistmsg.linear.x = math.cos(yaw)*fspeed + math.sin(yaw)*hspeed
+            twistmsg.linear.y = math.sin(yaw)*fspeed - math.cos(yaw)*hspeed
+            twistmsg.angular.z = 0
+        
+        # publishing
+        twistmsg.linear.z = vspeed  # vertical motion
+        rcmsg.channels[7] = int(pitchcommand) #send pitch command on channel 8
+        rcmsg.channels[6] = int(yawcommand) #send yaw command on channel 7
+        twistpub.publish(twistmsg)
+        rcpub.publish(rcmsg)
+        if print_pitch:
+            print('Pitch command: %f' % (pitchcommand))
+        if print_yawrate:
+            print('Yaw rate: %f' % yawrate)
+        if print_alt:
+            print(f"Altitude: {alt} m")
+        
+        # writing control states and data to csv
         save_log()
         
         rate.sleep()
 
 def rise_up(dz = 5,vz=1):
+    # simple loop to go up or down, usually to get above object
+    print(f'Rising {dz}m at {vz}m/s...')
     global twistpub, twistmsg
     twistmsg.linear.x = 0
     twistmsg.linear.y = 0
@@ -548,11 +624,14 @@ def rise_up(dz = 5,vz=1):
     return
 
 def survey_flow():
+    """
+    separated loop that keeps the drone fixed while observing the flow in the bounding box below
+    """
     global surveying
     global twistpub, twistmsg,rcmsg,rcpub
     # function for starting a survey of the flow from above, and then calling a heading to travel towards
     global fspeed,hspeed,vspeed
-    survey_samples = 20
+    survey_samples = 10
     survey_duration = 10
     # hold position for _ seconds
     twistmsg.linear.x = 0
@@ -570,28 +649,32 @@ def survey_flow():
     vy = []
     #-----DEBUGGING-------#
     if debugging:
-        vx = 1*np.ones(survey_samples)
-        vy = 0*np.ones(survey_samples)
+        for iii in range(survey_samples):
+            vx.append(1)
+            vy.append(3)
     #---------------------#
     t_log = time.time()
     flow_prev = flow_x
     print('#-------------------Beginning survey---------------------#')
     surveying = True
     while True: # collect samples until a certain number reached, and for at least 5 seconds
+        if not guided_mode:
+            return 0,0
+        if len(vx) >= survey_samples and (time.time() - t0 > 5): # do this at least 5 seconds duration
+            break
         if flow_t > t1 and flow_x != flow_prev: # only use flow values after this sequence starts
                 if ~np.isnan(flow_x):   # only use if not nan
-                    vx.append(flow_x*flow_survey_gain)
-                    vy.append(flow_y*flow_survey_gain)
+                    vx.append(flow_x*flow_survey_gain*(alt-3))
+                    vy.append(flow_y*flow_survey_gain*(alt-3)) # gain is attenuated or amplified by altitude
                     
                 flow_prev = flow_x
                 
-        if len(vx) >= survey_samples and (time.time() - t0 > 5): # do this at least 5 seconds
-            break
+
                     
-        if time.time()-t0 > 15: # only do this for 15 seconds at most
+        if time.time()-t0 > 30: # only do this for 15 seconds at most
             print('#-------------------Failed to determine heading--------------#')
             # heading_obtained = False
-            return
+            return 0,0
         if time.time()-t_log > 0.1: # do this at 10Hz at most
             save_log() # makes sure data keeps being saved with GPS
             t_log = time.time()
@@ -603,8 +686,8 @@ def survey_flow():
             # print('latest flow time',flow_t)
 
     
-    fspeed_surv = np.nanmean(vx)
-    hspeed_surv = np.nanmean(vy)
+    fspeed_surv = np.nanmean(vy) # vertical velocity
+    hspeed_surv = np.nanmean(vx)  # horizontal
     print('#-----------------------Got heading-------------#')
     print('Samples collected: vx')
     print(vx)
@@ -631,50 +714,56 @@ def survey_flow():
 
     
     # heading_obtained = True
-    set_heading(fspeed_surv,hspeed_surv)
+    # set_heading(fspeed_surv,hspeed_surv)
     print('#----------------------Survey complete------------------------#')
-    return
+    surveying = False
+    return fspeed_surv,hspeed_surv
 
         
-def set_heading(fspeed_surv,hspeed_surv):
+def sample_along_heading(fspeed_surv,hspeed_surv):
+    """
+    keeps fixed altitude and moves along a prescribed direction obtain from flow survey prior
+    """
     global twistpub, twistmsg,rcmsg,rcpub
     # function for setting the flow direction obtained after surveying
-    
+    global sampling
     global fspeed,hspeed,vspeed
-    alt_diff = alt_sampling - alt
-    
-    t_log = time.time()
-    print('Current altitude: %f' % alt)
-    
-    print('#------------Moving to setpoint altitude (%f m)--------#' % alt_sampling)
-    # get to setpoint altitude
-    # vspeed_tmp = 0
-    while abs(alt_diff) > 0.5:
-        if alt_diff < 0:    # if already above the setpoint
-            vspeed_tmp = -0.75 # move downward
-        elif alt_diff > 0:
-            vspeed_tmp = 0.75 # move upward
-        # print('Vertical speed command:',vspeed)
-        vspeed_tmp = min(max(vspeed_tmp,-limit_speed_v),limit_speed_v) # vertical speed
+    # alt_diff = alt_sampling - alt
+    # 
+    # t_log = time.time()
+    # print('Current altitude: %f' % alt)
+    # 
+    # print('#------------Moving to setpoint altitude (%f m)--------#' % alt_sampling)
+    # # get to setpoint altitude
+    # # vspeed_tmp = 0
+    # while abs(alt_diff) > 0.5:
+    #     if alt_diff < 0:    # if already above the setpoint
+    #         vspeed_tmp = -0.75 # move downward
+    #     elif alt_diff > 0:
+    #         vspeed_tmp = 0.75 # move upward
+    #     # print('Vertical speed command:',vspeed)
+    #     vspeed_tmp = min(max(vspeed_tmp,-limit_speed_v),limit_speed_v) # vertical speed
         
-        # print('Vertical speed command:',vspeed)
-        twistmsg.linear.z = vspeed_tmp
-        twistpub.publish(twistmsg)
-        rcmsg.channels[7] = pitch_down #send pitch command on channel 8
-        rcmsg.channels[6] = yaw_center #send yaw command on channel 7
-        rcpub.publish(rcmsg)
-        # rcpub.publish(rcmsg)
-        alt_diff = alt_sampling - alt # update based on new altitude
-        # print('latest alt diff',alt_diff)
-        # print(gps_t)
+    #     # print('Vertical speed command:',vspeed)
+    #     twistmsg.linear.z = vspeed_tmp
+    #     twistpub.publish(twistmsg)
+    #     rcmsg.channels[7] = pitch_down #send pitch command on channel 8
+    #     rcmsg.channels[6] = yaw_center #send yaw command on channel 7
+    #     rcpub.publish(rcmsg)
+    #     # rcpub.publish(rcmsg)
+    #     alt_diff = alt_sampling - alt # update based on new altitude
+    #     # print('latest alt diff',alt_diff)
+    #     # print(gps_t)
     
-        if time.time()-t_log > 0.1: # do this at 10Hz at most
-            save_log() # makes sure data keeps being saved with GPS
-            t_log = time.time()
-            print('Current alt: %f m; Setpoint: %f m' % (alt,alt_sampling))
-            print('Vertical speed command:',vspeed_tmp)
-        # start lateral movements
+    #     if time.time()-t_log > 0.1: # do this at 10Hz at most
+    #         save_log() # makes sure data keeps being saved with GPS
+    #         t_log = time.time()
+    #         print('Current alt: %f m; Setpoint: %f m' % (alt,alt_sampling))
+    #         print('Vertical speed command:',vspeed_tmp)
+    #     # start lateral movements
 
+    sampling = True
+    
     # stop motion in z-direction
     twistmsg.linear.x = math.cos(yaw)*fspeed_surv + math.sin(yaw)*hspeed_surv
     twistmsg.linear.y = math.sin(yaw)*fspeed_surv - math.cos(yaw)*hspeed_surv
@@ -696,14 +785,16 @@ def set_heading(fspeed_surv,hspeed_surv):
         
         
     print('#---------------Sampling...DONE-----------------------#')
-    
+    sampling = False
     return
 
 
 def save_log():
-    fid.write('%f,%f,%f,%f,%f,%s,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
-        (time.time(),gps_t,gps_x,gps_y,alt,str(surveying),str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
-
+    """
+    writing data to csv
+    """
+    fid.write('%f,%f,%f,%f,%f,%f,%f,%f,%s,%s,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
+        (time.time(),gps_t,gps_x,gps_y,alt,gps_lat,gps_long,gps_alt_rel,str(surveying),str(sampling),str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
 if __name__ == '__main__':
     try:
         dofeedbackcontrol()

@@ -14,23 +14,26 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import sys, os, time
 import matplotlib
-matplotlib.use('QtAgg')
-import h5py
+
+matplotlib.use('TkAgg')
+
 from scipy.ndimage import gaussian_filter
-from cv2.xfeatures2d import matchGMS,SURF_create
+# from cv2.xfeatures2d import matchGMS,SURF_create
+from kmeans_pytorch import kmeans
+from pykeops.torch import LazyTensor
 
 # from rasterio.fill import fillnodata
 # from scipy import interpolate
 import torch
 print(f"Torch setup complete. Using torch {torch.__version__} ({torch.cuda.get_device_properties(0).name if torch.cuda.is_available() else 'CPU'})")
 if torch.cuda.is_available():
-    DEVICE='cuda'
+    DEVICE='cuda:0'
 else:
     DEVICE='cpu'
     
 FILE = Path(__file__).resolve()
 # YOLO paths and importing
-YOLOv5_ROOT = FILE.parents[1] / 'src/modules/yolov5'  # YOLOv5 root directory
+YOLOv5_ROOT = FILE.parents[1] / 'src/modules/combined_for_reanalysis'  # YOLOv5 root directory
 if str(YOLOv5_ROOT) not in sys.path:
     sys.path.append(str(YOLOv5_ROOT))  # add YOLOv5_ROOT to PATH
 YOLOv5_ROOT = Path(os.path.relpath(YOLOv5_ROOT, Path.cwd()))  # relative
@@ -42,19 +45,24 @@ from utils.plots import Annotator, colors
 from utils.augmentations import letterbox
 
 # folder = Path(r'/Volumes/Inland 2TB/0GAIA/11-02_auto run/2022-11-02_run01_camera')
-folder = Path(r'/Users/nate/Library/CloudStorage/GoogleDrive-nbristow@umn.edu/Shared drives/Flow Field Imaging Lab/Current Members/Postdocs/Nate Bristow_2021-/Research projects/NSF-MRI-GAIA/Report2022-_AI drone DIH/Data/Feedback control/Deployments 2022-10/10-07/2022-10-07_run09_camera')
-# filename = 'Acquisition_Frames1-10000.avi'
+
+# folder = Path(r'/home/ffil/1FeedbackControl/2022-11-28_run01_camera')
+folder = Path('/home/ffil/1FeedbackControl/2022-12-02_run02_camera')
+# filename = 'Acquisition_Frames1-100000.avi'
 filename = 'Acquisition.avi'
-# first_frame = 2100
-# last_possible_frame = 2700
-first_frame = 1650
-last_possible_frame = 2050
+# first_frame = 5800
+# last_possible_frame = 7700
+first_frame = 4200
+last_possible_frame = 6000
+
 skip = 1
 
 DEBUG = True
 #-----------OPTIONS for YOLO---------------#
 target_name = 'smoke' # options: smoke,car,person
-engine = False # using tensorrt
+
+engine = True # using tensorrt
+
 half = engine
 max_delay = 0.5 # [seconds] delay between last detectiona nd current image after which to just drop images to catch up
 conf_thres=0.4  # confidence threshold
@@ -62,7 +70,10 @@ iou_thres=0.45  # NMS IOU threshold
 
 VIEW_IMG=True
 SAVE_IMG = True
-USE_DEWARPING=True
+
+USE_DEWARPING=False
+USE_OPTICAL_FLOW = False
+
 save_format = '.avi'
 #-----------------------------------------#
 
@@ -85,7 +96,9 @@ SAVE_VIDEO = True
 
 
 if USE_RAFT:
-    RAFT_ROOT = Path(FILE.parents[1] / 'src/modules/RAFT')  # RAFT directory
+
+    RAFT_ROOT = Path(FILE.parents[1] / 'src/modules/combined_for_reanalysis')  # RAFT directory
+
     # print(RAFT_ROOT)
     if str(RAFT_ROOT) not in sys.path:
         sys.path.append(str(RAFT_ROOT))  # add RAFT to PATH
@@ -94,14 +107,18 @@ if USE_RAFT:
     from utils.utils import InputPadder
     import torch
     import argparse
-    from flow_viz import flow_to_image
+
+    from utils.flow_viz import flow_to_image
+    raft_model_path = str(FILE.parent.parent / 'src/modules/RAFT/raft-small.pth')
+    
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', help="restore checkpoint")
     parser.add_argument('--path', help="dataset for evaluation")
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
-    args = parser.parse_args(['--model',str(RAFT_ROOT) + '/raft-small.pth',
+    args = parser.parse_args(['--model',raft_model_path,
                                 '--path','',
                                 '--small'])
     
@@ -116,6 +133,12 @@ if USE_RAFT:
     model_raft = model_raft.module
     model_raft.to(DEVICE)
     model_raft.eval()
+
+
+if engine:
+    yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW_new_1-3-352-448.engine')
+else:
+    yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW_new.pt')
 
 
 #%%
@@ -148,19 +171,19 @@ def main():
 
     print('Initializing model')
     # weights=YOLOv5_ROOT / 'smoke01k_015empty_H-M-L_withUMore.pt'
-    weights=YOLOv5_ROOT / 'smoke.pt'
+    weights=yolo_model_path
     model_yolo, device, names = detect_init(weights)
-    imgsz = [448,448] # scaled image size to run inference on
-    model_yolo(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model_yolo.parameters())))  # run once
+    imgsz = [352,448] # scaled image size to run inference on
+    # model_yolo(torch.zeros(1, 3, 352,448).to(device).type_as(next(model_yolo.parameters())))  # run once
 
     # %%
     # loading camera distortion parameters
-    cal_path = Path(FILE.parents[1] / 'src/gopro_intrinsics.h5')
-    # cal_path = Path('../src/gopro_intrinsics.h5')
-    hf = h5py.File(cal_path,'r')
-    mtx = np.array(hf['cam_matrix'])
-    dist = np.array(hf['distortion_coeff'])
-    
+
+    cal_path = Path(FILE.parents[1] / 'src/gopro_intrinsics.npz')
+    cal = np.load(cal_path)
+    mtx = cal['cam_matrix']
+    dist = cal['distortion_coeff']
+
     _,tmp = cap.read()
     h,w = tmp.shape[:-1]
     newcameramtx, roi = cv.getOptimalNewCameraMatrix(mtx, dist, (w,h), 0, (w,h))
@@ -253,187 +276,196 @@ def main():
                 mask[y1:y2,x1:x2] = 0
                 prev = motionHomography(prev,curr,mask,debugging=DEBUG)
 
-
-
             
-            
-            # using dense optical flow with RLOF
-            # flow = cv.optflow.calcOpticalFlowDenseRLOF(prev[y1:y2,x1:x2,:],curr[y1:y2,x1:x2,:],None) # using defaults for now
+            if USE_OPTICAL_FLOW:
+                # using dense optical flow with RLOF
+                # flow = cv.optflow.calcOpticalFlowDenseRLOF(prev[y1:y2,x1:x2,:],curr[y1:y2,x1:x2,:],None) # using defaults for now
 
-            # computing flow outside the bounding box
-            t1 = time.time()
-            if USE_RAFT:
-                flow_outside,_,_ = RAFTflow(prev,curr,model_raft)
-            else:
-                flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(prev,curr,None) # using defaults for now
-            print('Flow time: %f sec' % (time.time()-t1))
 
-            org = flow_outside.copy()
-            flow = flow_outside[y1:y2,x1:x2,:].copy()
-            
-            if USE_SEGMENTATION:
-                flow_img = flow_to_image(org)
+                # computing flow outside the bounding box
                 t1 = time.time()
-                labels = flow_segment(flow_img)
-                # determine which group is smoke
-                onesfrac = np.sum(labels[y1:y2,x1:x2].flatten())/np.sum(labels.flatten())
-                zerosfrac = np.sum(labels[y1:y2,x1:x2].flatten()==0)/np.sum(labels.flatten()==0)
-                if onesfrac < zerosfrac:
-                    labels = 1-labels
-                # expand mask
-                labels_exp = 1-gaussian_filter(1-labels,sigma=3)
+                if USE_RAFT:
+                    flow_outside,_,_ = RAFTflow(prev,curr,model_raft)
+                else:
+                    flow_outside = cv.optflow.calcOpticalFlowDenseRLOF(prev,curr,None) # using defaults for now
+                print('Flow time: %f sec' % (time.time()-t1))
 
-                flow_outside*=(1-np.stack((labels_exp,labels_exp),axis=2))
-                flow_outside[flow_outside==0] = np.nan
-                print(f"Took {time.time()-t1} seconds")
-            else:
-                flow_outside[y1:y2,x1:x2,:] = np.nan
-
+                org = flow_outside.copy()
+                flow = flow_outside[y1:y2,x1:x2,:].copy()
                 
-            
+                if USE_SEGMENTATION:
+                    flow_img = flow_to_image(org)
+                    t1 = time.time()
+                    # labels = flow_segment(flow_img)
+                    labels = flow_segment(org)
 
-            if USE_COMP:
+                    # determine which group is smoke
+                    onesfrac = np.sum(labels[y1:y2,x1:x2].flatten())/np.sum(labels.flatten())
+                    zerosfrac = np.sum(labels[y1:y2,x1:x2].flatten()==0)/np.sum(labels.flatten()==0)
 
+                    # seg_img = labels.astype(np.uint8)*255
+                    # seg_img = cv.cvtColor(seg_img,cv.COLOR_GRAY2BGR)
+                    # seg_img = cv.putText(seg_img,f'Zeros: {zerosfrac}',(10,seg_img.shape[0]-30),font, font_size, (0,0,255), font_thickness, cv.LINE_AA)
+                    # seg_img = cv.putText(seg_img,f'Ones: {onesfrac}',(10,seg_img.shape[0]-60),font, font_size, (0,0,255), font_thickness, cv.LINE_AA)
+                    # cv.imshow('segmentation',seg_img)
+                    # cv.waitKey(10)
+
+                    if np.isnan(onesfrac):
+                        # this means the segmentation failed
+                        flow_outside[y1:y2,x1:x2,:] = np.nan # interpolate the entire box, not just smoke
+                        # labels = 1-labels # so that later its not assumed teh whole box is non-smoke
+                        # remove_small_flow = True
+                    else:
+                        # remove_small_flow = False
+                        if onesfrac < zerosfrac:
+                            labels = 1-labels
+                        
+                        # expand mask
+                        # t2 = time.time()
+                        labels_exp = 1-gaussian_filter(1-labels,sigma=3)
+                        # print(f"Expanding mask took {time.time()-t2} seconds")
+
+                        flow_outside*=(1-np.stack((labels_exp,labels_exp),axis=2))
+                        flow_outside[flow_outside==0] = np.nan
+                    print(f"Segmentation took {time.time()-t1} seconds")
+                else:
+                    flow_outside[y1:y2,x1:x2,:] = np.nan
+
+                    
                 
-                if USE_INPAINTING:
-                    tmp = time.time()
 
-                    u1 = flow_outside[:,:,0].copy()
-                    u2 = flow_outside[:,:,1].copy()
-                    
-                    pad = 20
-                    u1 = np.pad(org[:,:,0],pad,'reflect',reflect_type='even')
-                    u2 = np.pad(org[:,:,1],pad,'reflect',reflect_type='even')
-                    u1[pad:-pad,pad:-pad] = flow_outside[:,:,0]
-                    u2[pad:-pad,pad:-pad] = flow_outside[:,:,1]
-                    padded_size = u1.shape
-
-                    rescale = 4
-                    u1 = cv.resize(u1,[u1.shape[1]//rescale,u1.shape[0]//rescale])
-                    u2 = cv.resize(u2,[u2.shape[1]//rescale,u2.shape[0]//rescale])
-
-                    # u1 = fillnodata(u1,~np.isnan(u1),max_search_distance=500)
-                    # u2 = fillnodata(u2,~np.isnan(u2),max_search_distance=500)
-                    # u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-                    # u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
-                    u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=100,flags=cv.INPAINT_NS)
-                    u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=100,flags=cv.INPAINT_NS)
+                if USE_COMP:
 
                     
-                    u1 = cv.resize(u1,np.flip(padded_size))[pad:-pad,pad:-pad]
-                    u2 = cv.resize(u2,np.flip(padded_size))[pad:-pad,pad:-pad]
+                    if USE_INPAINTING:
+                        tmp = time.time()
 
-                    # it = interpolate.LinearNDInterpolator(coords, values, fill_value=0)
-                    # print('Inpainting time: %f' % (time.time()-tmp))
-                    # filled = it(list(np.ndindex(img.shape))).reshape(img.shape)
-                    # u1 = filled.copy()
-                    # u2 = u1.copy()
-                    
-                    
-                    flow[:,:,0] -=u1[y1:y2,x1:x2] 
-                    flow[:,:,1] -=u2[y1:y2,x1:x2]
-                    # masking out non-smoke
-                    flow[np.stack((labels[y1:y2,x1:x2],labels[y1:y2,x1:x2]),axis=2)==0] = np.nan
-                    
-                    flow_outside_x = np.nanmean(u1[y1:y2,x1:x2].flatten())
-                    flow_outside_y = np.nanmean(u2[y1:y2,x1:x2].flatten())
-                    # %matplotlib inline
+                        u1 = flow_outside[:,:,0].copy()
+                        u2 = flow_outside[:,:,1].copy()
+                        
+                        pad = 20
+                        u1 = np.pad(org[:,:,0],pad,'reflect',reflect_type='even')
+                        u2 = np.pad(org[:,:,1],pad,'reflect',reflect_type='even')
+                        u1[pad:-pad,pad:-pad] = flow_outside[:,:,0]
+                        u2[pad:-pad,pad:-pad] = flow_outside[:,:,1]
+                        padded_size = u1.shape
 
-                    if DEBUG:
-                        fo = flow_outside.copy()
-                        fo[np.isnan(fo)]=0
-                        org = flow_to_image(org)
-                        org = cv.rectangle(org,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-                        
-                        old = flow_to_image(fo)
-                        old = cv.rectangle(old,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-                        
-                        new = flow_to_image(np.stack((u1,u2),axis=2))
-                        new = cv.rectangle(new,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-                        
-                        # fo1 = (fo1-min(fo1.flatten())*255/max(fo1.flatten())).astype(np.uint8)
-                        # fo2 = (fo2-min(fo2.flatten())*255/max(fo2.flatten())).astype(np.uint8)
-                        # u1 = (u1-min(u1.flatten())*255/max(u1.flatten())).astype(np.uint8)
-                        # u2 = (u2-min(u2.flatten())*255/max(u2.flatten())).astype(np.uint8)
-                        
-                        
-                        # fo1 = cv.rectangle(fo1,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-                        # fo2 = cv.rectangle(fo2,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-                        # u1 = cv.cvtColor(u1,cv.COLOR_GRAY2BGR)
-                        # u2 = cv.cvtColor(u2,cv.COLOR_GRAY2BGR)
-                        # fo1 = cv.cvtColor(fo1,cv.COLOR_GRAY2BGR)
-                        # fo2 = cv.cvtColor(fo2,cv.COLOR_GRAY2BGR)
-                        # u1 = cv.rectangle(u1,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-                        # u2 = cv.rectangle(u2,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
-                        # old = np.concatenate((fo1,fo2),axis=1)
-                        # new = np.concatenate((u1,u2),axis=1)
-                        # plt.figure()
-                        # plt.imshow(np.concatenate((old,new),axis=0))
-                        # plt.show()
-                        bg_flow = np.concatenate((org,old,new),axis=0)
-                        cv.imshow('background subtraction',bg_flow)
-                        cv.waitKey(10)
-                        
-                        if bgn ==0:
+                        rescale = 4
+                        u1 = cv.resize(u1,(u1.shape[1]//rescale,u1.shape[0]//rescale))
+                        u2 = cv.resize(u2,(u2.shape[1]//rescale,u2.shape[0]//rescale))
 
-                            savename = folder.joinpath('opticalflow_background.avi')
-                            codec = cv.VideoWriter_fourcc('M','J','P','G')
-                            bg_video = cv.VideoWriter(filename=str(savename),
-                                fourcc=codec, 
-                                fps=videoFps, 
-                                frameSize=(bg_flow.shape[1],bg_flow.shape[0]))
-                        bgn+=1
-                        bg_video.write(bg_flow)
+                        # u1 = fillnodata(u1,~np.isnan(u1),max_search_distance=500)
+                        # u2 = fillnodata(u2,~np.isnan(u2),max_search_distance=500)
+                        # u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+                        # u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=10,flags=cv.INPAINT_TELEA)
+                        tmp = time.time()
+                        u1 = cv.inpaint(u1,(1*np.isnan(u1)).astype(np.uint8),inpaintRadius=5,flags=cv.INPAINT_NS)
+                        u2 = cv.inpaint(u2,(1*np.isnan(u2)).astype(np.uint8),inpaintRadius=5,flags=cv.INPAINT_NS)
+                        print('Inpainting time: %f' % (time.time()-tmp))
+                        
+                        u1 = cv.resize(u1,(padded_size[1],padded_size[0]))[pad:-pad,pad:-pad]
+                        u2 = cv.resize(u2,(padded_size[1],padded_size[0]))[pad:-pad,pad:-pad]
+
+                        # it = interpolate.LinearNDInterpolator(coords, values, fill_value=0)
+                        # print('Inpainting time: %f' % (time.time()-tmp))
+                        # filled = it(list(np.ndindex(img.shape))).reshape(img.shape)
+                        # u1 = filled.copy()
+                        # u2 = u1.copy()
+                        
+                        
+                        flow[:,:,0] -=u1[y1:y2,x1:x2] 
+                        flow[:,:,1] -=u2[y1:y2,x1:x2]
+                        # masking out non-smoke
+                        # if remove_small_flow:
+                        #     flow[abs(flow) < 0.05] = np.nan
+                        # else:
+                        flow[np.stack((labels[y1:y2,x1:x2],labels[y1:y2,x1:x2]),axis=2)==0] = np.nan
+                        
+                        flow_outside_x = np.nanmean(u1[y1:y2,x1:x2].flatten())
+                        flow_outside_y = np.nanmean(u2[y1:y2,x1:x2].flatten())
+                        # %matplotlib inline
+
+                        if DEBUG:
+                            fo = flow_outside.copy()
+                            fo[np.isnan(fo)]=0
+                            org = flow_to_image(org)
+                            org = cv.rectangle(org,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
+                            
+                            old = flow_to_image(fo)
+                            old = cv.rectangle(old,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
+                            
+                            new = flow_to_image(np.stack((u1,u2),axis=2))
+                            new = cv.rectangle(new,(x1,y1),(x2,y2),color=[0,0,255],thickness=4)
+                            
+                            bg_flow = np.concatenate((org,old,new),axis=0)
+                            cv.imshow('background subtraction',bg_flow)
+                            cv.waitKey(10)
+                            
+                            if bgn ==0:
+
+                                savename = folder.joinpath('opticalflow_background.avi')
+                                codec = cv.VideoWriter_fourcc('M','J','P','G')
+                                bg_video = cv.VideoWriter(filename=str(savename),
+                                    fourcc=codec, 
+                                    fps=videoFps, 
+                                    frameSize=(bg_flow.shape[1],bg_flow.shape[0]))
+                            bgn+=1
+                            bg_video.write(bg_flow)
+
+                    else:
+                        flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
+                        flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
+                    
+                    if USE_OUTSIDE_MEDIAN_COMP:
+                        # compensating for external motion using flow outside bounding box
+                        flow[:,:,0] -= flow_outside_x
+                        flow[:,:,1] -= flow_outside_y
 
                 else:
-                    flow_outside_x = np.nanmedian(flow_outside[:,:,0].flatten()[::1])
-                    flow_outside_y = np.nanmedian(flow_outside[:,:,1].flatten()[::1])
+                    flow_outside_x=flow_outside_y=0
                 
-                if USE_OUTSIDE_MEDIAN_COMP:
-                    # compensating for external motion using flow outside bounding box
-                    flow[:,:,0] -= flow_outside_x
-                    flow[:,:,1] -= flow_outside_y
+
+
+                if USE_FILTER_FLOW:
+                    # filter out low displacements
+                    flow[np.abs(flow) < 0.5] = np.nan
+
+                if USE_FILTER_COLOR:
+                    tmp = time.time()
+                    # filter out if not very white
+                    # if USE_RAFT:
+                    #     color_filter = np.mean(prev_small,axis=2) < 180
+                    # else:
+                    color_filter = np.mean(prev[y1:y2,x1:x2,:],axis=2) < 150
+                    flow[color_filter] = np.nan
+                    print('COlor filter time: %f' % (time.time()-tmp))
+                
+                if USE_UNCERTAINTY:
+                    tmp = time.time()
+                    sigma_inside = np.array([np.nanstd(flow[:,:,0].flatten()),np.nanstd(flow[:,:,1].flatten())])
+                    mean_inside = np.abs(np.array([np.nanmean(flow[:,:,0].flatten()),np.nanmean(flow[:,:,1].flatten())]))
+                    # print('Sigma: (%0.3f,%0.3f); Mean: (%0.3f,%0.3f)' % (sigma_inside[0],sigma_inside[1],mean_inside[0],mean_inside[1]))
+                    # if all(sigma_inside > 2*mean_inside):
+                        # flow = np.full_like(flow,np.nan)
+                        # print('not good')
+                    print('Uncertainty time: %f' % (time.time()-tmp))
+                
+                    # plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_arrow=False)
+                if USE_MIN_VECTORS_FILTER:
+                    tmp = time.time()
+                    count = np.sum(~np.isnan(flow.flatten()))/2
+                    # print('Count: %d' % int(count))
+
+                    prev = cv.putText(prev,'Vectors: %d' % count,(10,prev.shape[0]-30),font, font_size, font_color, font_thickness, cv.LINE_AA)
+                    if count < 1e4:
+                        flow = np.full_like(flow,np.nan)
+                    print('Vector count time: %f' % (time.time()-tmp))
+                
+                result = plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_arrow=USE_COMP,plot_outside_detail = False,show_figure=False)
             else:
-                flow_outside_x=flow_outside_y=0
-            
+                result = cv.rectangle(prev.copy(),(x1,y1),(x2,y2),color=[0,0,255],thickness=3)
+                # result = plot_flow_v2(prev.copy(),flow,flow_outside,[x1,x2,y1,y2])
 
-            if USE_FILTER_FLOW:
-                # filter out low displacements
-                flow[np.abs(flow) < 0.5] = np.nan
-
-            if USE_FILTER_COLOR:
-                tmp = time.time()
-                # filter out if not very white
-                # if USE_RAFT:
-                #     color_filter = np.mean(prev_small,axis=2) < 180
-                # else:
-                color_filter = np.mean(prev[y1:y2,x1:x2,:],axis=2) < 150
-                flow[color_filter] = np.nan
-                print('COlor filter time: %f' % (time.time()-tmp))
-            
-            if USE_UNCERTAINTY:
-                tmp = time.time()
-                sigma_inside = np.array([np.nanstd(flow[:,:,0].flatten()),np.nanstd(flow[:,:,1].flatten())])
-                mean_inside = np.abs(np.array([np.nanmean(flow[:,:,0].flatten()),np.nanmean(flow[:,:,1].flatten())]))
-                # print('Sigma: (%0.3f,%0.3f); Mean: (%0.3f,%0.3f)' % (sigma_inside[0],sigma_inside[1],mean_inside[0],mean_inside[1]))
-                # if all(sigma_inside > 2*mean_inside):
-                    # flow = np.full_like(flow,np.nan)
-                    # print('not good')
-                print('Uncertainty time: %f' % (time.time()-tmp))
-            
-                # plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_arrow=False)
-            if USE_MIN_VECTORS_FILTER:
-                tmp = time.time()
-                count = np.sum(~np.isnan(flow.flatten()))/2
-                # print('Count: %d' % int(count))
-
-                prev = cv.putText(prev,'Vectors: %d' % count,(10,prev.shape[0]-30),font, font_size, font_color, font_thickness, cv.LINE_AA)
-                if count < 1e4:
-                    flow = np.full_like(flow,np.nan)
-                print('Vector count time: %f' % (time.time()-tmp))
-            
-            result = plot_flow(prev.copy(),flow,flow_outside,[x1,x2,y1,y2],plot_outside_arrow=USE_COMP,plot_outside_detail = False,show_figure=False)
-            # result = plot_flow_v2(prev.copy(),flow,flow_outside,[x1,x2,y1,y2])
             # %%
             # fig,ax = plt.subplots(1,2)
             # ax[0].hist(flow[:,:,0].flatten())
@@ -518,7 +550,6 @@ def detect_init(weights=YOLOv5_ROOT / 'yolov5s.pt'):
         model.to(device)    # then sends to GPU
     else:
         model = DetectMultiBackend(weights, device=device)
-    
 
     
     stride, names, pt = model.stride, model.names, model.pt
@@ -591,7 +622,7 @@ def detect_smoke(img0,imgsz,model,device,names,savenum=None):
                 xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                 confidence = float(conf)
                 object_class = names[int(cls)]
-                # print(object_class)
+
                 # if save_img or save_crop or view_img:  # Add bbox to image
                 if VIEW_IMG:
                     c = int(cls)  # integer class
@@ -608,10 +639,16 @@ def detect_smoke(img0,imgsz,model,device,names,savenum=None):
         bestobject = []
         bestconf = 0
         for ob in obj:
-            # if ob.object_class == target_name and ob.confidence > bestconf:
-            if ob.object_class == target_name and ob.confidence > bestconf: # tensorrt loses the names
-                bestobject = [ob]
-                bestconf = ob.confidence  
+
+            if not engine:
+                if ob.object_class == target_name and ob.confidence > bestconf:
+                    bestobject = [ob]
+                    bestconf = ob.confidence
+            else:
+                if ob.object_class == 'class0' and ob.confidence > bestconf: # tensorrt loses the names
+                    bestobject = [ob]
+                    bestconf = ob.confidence  
+
     else:
         bestobject = [ob]
         bestconf = ob.confidence
@@ -723,10 +760,12 @@ def plot_flow(prev,flow_inside,flow_outside,ROI,plot_outside_arrow = True,plot_o
     for ii in range(0,flow_inside.shape[1],step):
         for jj in range(0,flow_inside.shape[0],step):
             if not any(np.isnan(flow_inside[jj,ii,:])):
+                pt1 = np.array([ii,jj]) + np.array([x1,y1])
+                pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int)
                 img = cv.arrowedLine(
                     img,
-                    pt1 = np.array([ii,jj]) + np.array([x1,y1]),
-                    pt2 = np.array([ii,jj]) + np.array([x1,y1]) + np.array([flow_inside[jj,ii,0],flow_inside[jj,ii,1]]).astype(int),
+                    pt1 = tuple(pt1),
+                    pt2 = tuple(pt2),
                     color=[0,255,0],
                     thickness=1,
                     tipLength=0.5
@@ -749,8 +788,8 @@ def plot_flow(prev,flow_inside,flow_outside,ROI,plot_outside_arrow = True,plot_o
     # pt2[0] *= min(np.abs(pt2[0]),img.shape[1]//2)/np.abs(pt2[0])
     img = cv.arrowedLine(
         img,
-        pt1 = pt1,
-        pt2 = pt2,
+        pt1 = tuple(pt1),
+        pt2 = tuple(pt2),
         color=[255,0,0],
         thickness=5,
         tipLength=0.5
@@ -771,8 +810,8 @@ def plot_flow(prev,flow_inside,flow_outside,ROI,plot_outside_arrow = True,plot_o
         pt2[0] = min(pt2[0],img.shape[1])
         img = cv.arrowedLine(
             img,
-            pt1 = pt1,
-            pt2 = pt2,
+            pt1 = tuple(pt1),
+            pt2 = tuple(pt2),
             color=[255,255,0],
             thickness=5,
             tipLength=0.5
@@ -808,18 +847,86 @@ def plot_flow_v2(img,flow_in,flow_all,roi):
     
     return img
 
+
 def flow_segment(flow_img):
     # reshape the image to a 2D array of pixels and 3 color values (RGB)
-    pixel_values = flow_img.reshape((-1, 3))
+    pixel_values = flow_img.reshape((-1, flow_img.shape[2]))
     # convert to float
-    pixel_values = np.float32(pixel_values)
-    # define stopping criteria
-    criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-    # number of clusters (K)
-    k = 2
-    _, labels, (centers) = cv.kmeans(pixel_values, k, None, criteria, 10, cv.KMEANS_RANDOM_CENTERS)
+    # pixel_values = np.float32(pixel_values)
 
-    return labels.reshape(flow_img.shape[:-1])
+
+    #-------OPENCV METHOD WITH CPU--------------#
+    # # define stopping criteria
+    # criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+    # # number of clusters (K)
+    # k = 2
+    # _, labels, (centers) = cv.kmeans(pixel_values, k, None, criteria, 10, cv.KMEANS_RANDOM_CENTERS)
+    # labels = labels.reshape(flow_img.shape[:-1])
+    #--------------------------------------------#
+
+    pixel_values = np.ascontiguousarray(pixel_values)
+    pixel_values = torch.from_numpy(pixel_values)
+    pixel_values = pixel_values.float()
+
+    # kmeans
+    # k = 2
+    # labels, cluster_centers = kmeans(
+    #     X=pixel_values, num_clusters=k, distance='euclidean', device=torch.device(DEVICE)
+    # )
+
+    labels, c = KMeans(pixel_values, K=2,use_cuda=DEVICE=='cuda',verbose=True)
+    # t1 = time.time()    
+    labels = labels.reshape(flow_img.shape[:-1]).cpu().numpy()
+    # print(f'Reshaping and passin gto CPU took {time.time()-t1} seconds')
+
+
+    return labels
+
+def KMeans(x, K=2, Niter=10, use_cuda=True,verbose=False):
+    """Implements Lloyd's algorithm for the Euclidean metric."""
+
+    start = time.time()
+    N, D = x.shape  # Number of samples, dimension of the ambient space
+
+    c = x[:K, :].clone()  # Simplistic initialization for the centroids
+
+    x_i = LazyTensor(x.view(N, 1, D))  # (N, 1, D) samples
+    c_j = LazyTensor(c.view(1, K, D))  # (1, K, D) centroids
+
+    # K-means loop:
+    # - x  is the (N, D) point cloud,
+    # - cl is the (N,) vector of class labels
+    # - c  is the (K, D) cloud of cluster centroids
+    for i in range(Niter):
+
+        # E step: assign points to the closest cluster -------------------------
+        D_ij = ((x_i - c_j) ** 2).sum(-1)  # (N, K) symbolic squared distances
+        cl = D_ij.argmin(dim=1).long().view(-1)  # Points -> Nearest cluster
+
+        # M step: update the centroids to the normalized cluster average: ------
+        # Compute the sum of points per cluster:
+        c.zero_()
+        c.scatter_add_(0, cl[:, None].repeat(1, D), x)
+
+        # Divide by the number of points per cluster:
+        Ncl = torch.bincount(cl, minlength=K).type_as(c).view(K, 1)
+        c /= Ncl  # in-place division to compute the average
+
+    if verbose:  # Fancy display -----------------------------------------------
+        if use_cuda:
+            torch.cuda.synchronize()
+        end = time.time()
+        print(
+            f"K-means for the Euclidean metric with {N:,} points in dimension {D:,}, K = {K:,}:"
+        )
+        print(
+            "Timing for {} iterations: {:.5f}s = {} x {:.5f}s\n".format(
+                Niter, end - start, Niter, (end - start) / Niter
+            )
+        )
+
+    return cl, c
+
     
 if __name__=='__main__':
     main()
