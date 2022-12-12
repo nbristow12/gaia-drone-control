@@ -3,11 +3,10 @@
 from ast import And
 import rospy
 from vision_msgs.msg import BoundingBox2D,Detection2D
-from geometry_msgs.msg import Twist
-from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import TimeReference
-from mavros_msgs.msg import OverrideRCIn
-from mavros_msgs.msg import State
+from geometry_msgs.msg import Twist, PoseStamped
+from sensor_msgs.msg import TimeReference,NavSatFix
+from mavros_msgs.msg import OverrideRCIn, State
+from std_msgs.msg import Float64
 import math
 from math import atan2
 import os,re
@@ -52,8 +51,7 @@ else:
 savedir = maindir.joinpath('%s_run%02d_fc-data' % (stamp,new_run_num))
 os.makedirs(savedir)  
 fid = open(savedir.joinpath('Feedbackdata.csv'),'w')
-fid.write('Timestamp_Jetson,Timestamp_GPS,GPS_x,GPS_y,GPS_z,Surveying,Sampling,MoveUp,AboveObject,Pitch,Size_error,OptFlow_On,Flow_x,Flow_y,Vspeed,Fspeed,Hspeed\n')
-
+fid.write('Timestamp_Jetson,Timestamp_GPS,GPS_x,GPS_y,GPS_z,GPS_lat,GPS_long,GPS_alt_rel,Surveying,Sampling,MoveUp,AboveObject,Pitch,Size_error,OptFlow_On,Flow_x,Flow_y,Vspeed,Fspeed,Hspeed\n')
 
 print_pitch = False
 print_size_error = False
@@ -76,6 +74,7 @@ setpoint_size_approach = 1.5 # only relevant for hybrid mode, for getting close 
 # optical flow parameters
 alt_flow = 3 # altitude at which to stop descent and keep constant for optical flow
 alt_sampling = 1.5 # altitude setpoint at which to do a controlled sampling based on mean flow direction
+alt_min = 0.5 # minimum allowable altitude
 
 
 # gain values
@@ -97,7 +96,6 @@ pitcherror_gain_min = 0.75 # sets a floor on how much teh drone can be slowed do
 # limit parameters
 yaw_center = 1500
 pitch_up=1000 # this value seems to drift sometimes
-alt_min = 0.5 # minimum allowable altitude
 alt_delta=0 # how high to move after crossing munumum alt
 limit_speed = 2
 limit_speed_v = 1 # different speed limit for changing altitude
@@ -126,6 +124,7 @@ move_up = False # initialized value
 moving_to_set_alt = False # only used after optical flow survey
 alt = 10 # initialized value outside the safegaurd
 gps_x = gps_y = gps_t = 0
+gps_lat = gps_long = gps_alt = gps_alt_rel = 0
 above_object = False
 sampling = False
 forward_scan = True # this should be on to start
@@ -173,8 +172,8 @@ def pose_callback(pose):
     r,p,y = euler_from_quaternion(q.x,q.y,q.z,q.w)
     yaw = y
     alt = pose.pose.position.z
-    if print_alt:
-        print(f"Altitude: {alt} m")
+    # if print_alt:
+    print(f"Altitude: {alt} m")
     gps_x = pose.pose.position.x
     gps_y = pose.pose.position.y
     # print(yaw)
@@ -199,6 +198,17 @@ def time_callback(gpstime):
     # print(gps_t)
     # print(rospy.get_time())
     # print(time.time())
+def gps_callback(gpsglobal):
+    global gps_lat,gps_long, gps_alt
+    gps_lat = gpsglobal.latitude
+    gps_long = gpsglobal.longitude
+    gps_alt = gpsglobal.altitude
+    print(f'gps_alt {gps_alt}')
+    
+def rel_alt_callback(altrel):
+    global gps_alt_rel
+    gps_alt_rel = altrel.data # relative altitude just from GPS data
+    print(f'gps_alt_rel {gps_alt_rel}')
 
 
 def boundingbox_callback(box):
@@ -300,6 +310,8 @@ def dofeedbackcontrol():
     rospy.Subscriber('/gaia/bounding_box', Detection2D, boundingbox_callback)
     rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
     rospy.Subscriber('/mavros/time_reference',TimeReference,time_callback)
+    rospy.Subscriber('/mavros/global_position/global',NavSatFix,gps_callback)
+    rospy.Subscriber('/mavros/global_position/rel_alt',Float64,rel_alt_callback)
     rospy.Subscriber('/gaia/flow',BoundingBox2D,flow_callback)
     rospy.Subscriber('/mavros/state',State,state_callback)
     twistpub = rospy.Publisher('/mavros/setpoint_velocity/cmd_vel_unstamped', Twist, queue_size=1)
@@ -781,9 +793,8 @@ def save_log():
     """
     writing data to csv
     """
-    fid.write('%f,%f,%f,%f,%f,%s,%s,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
-        (time.time(),gps_t,gps_x,gps_y,alt,str(surveying),str(sampling),str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
-
+    fid.write('%f,%f,%f,%f,%f,%f,%f,%f,%s,%s,%s,%s,%f,%f,%s,%f,%f,%f,%f,%f\n' % 
+        (time.time(),gps_t,gps_x,gps_y,alt,gps_lat,gps_long,gps_alt_rel,str(surveying),str(sampling),str(move_up),str(above_object),pitchcommand,sizeerror,str(OPT_FLOW),flow_x,flow_y,vspeed,fspeed,hspeed))
 if __name__ == '__main__':
     try:
         dofeedbackcontrol()
