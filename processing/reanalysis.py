@@ -14,12 +14,14 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import sys, os, time
 import matplotlib
+
 matplotlib.use('TkAgg')
 
 from scipy.ndimage import gaussian_filter
 # from cv2.xfeatures2d import matchGMS,SURF_create
 from kmeans_pytorch import kmeans
 from pykeops.torch import LazyTensor
+
 # from rasterio.fill import fillnodata
 # from scipy import interpolate
 import torch
@@ -43,6 +45,7 @@ from utils.plots import Annotator, colors
 from utils.augmentations import letterbox
 
 # folder = Path(r'/Volumes/Inland 2TB/0GAIA/11-02_auto run/2022-11-02_run01_camera')
+
 # folder = Path(r'/home/ffil/1FeedbackControl/2022-11-28_run01_camera')
 folder = Path('/home/ffil/1FeedbackControl/2022-12-02_run02_camera')
 # filename = 'Acquisition_Frames1-100000.avi'
@@ -51,12 +54,15 @@ filename = 'Acquisition.avi'
 # last_possible_frame = 7700
 first_frame = 4200
 last_possible_frame = 6000
+
 skip = 1
 
 DEBUG = True
 #-----------OPTIONS for YOLO---------------#
 target_name = 'smoke' # options: smoke,car,person
+
 engine = True # using tensorrt
+
 half = engine
 max_delay = 0.5 # [seconds] delay between last detectiona nd current image after which to just drop images to catch up
 conf_thres=0.4  # confidence threshold
@@ -64,8 +70,10 @@ iou_thres=0.45  # NMS IOU threshold
 
 VIEW_IMG=True
 SAVE_IMG = True
+
 USE_DEWARPING=False
 USE_OPTICAL_FLOW = False
+
 save_format = '.avi'
 #-----------------------------------------#
 
@@ -88,7 +96,9 @@ SAVE_VIDEO = True
 
 
 if USE_RAFT:
+
     RAFT_ROOT = Path(FILE.parents[1] / 'src/modules/combined_for_reanalysis')  # RAFT directory
+
     # print(RAFT_ROOT)
     if str(RAFT_ROOT) not in sys.path:
         sys.path.append(str(RAFT_ROOT))  # add RAFT to PATH
@@ -97,9 +107,11 @@ if USE_RAFT:
     from utils.utils import InputPadder
     import torch
     import argparse
+
     from utils.flow_viz import flow_to_image
     raft_model_path = str(FILE.parent.parent / 'src/modules/RAFT/raft-small.pth')
     
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', help="restore checkpoint")
     parser.add_argument('--path', help="dataset for evaluation")
@@ -122,11 +134,11 @@ if USE_RAFT:
     model_raft.to(DEVICE)
     model_raft.eval()
 
+
 if engine:
     yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW_new_1-3-352-448.engine')
 else:
     yolo_model_path = str(FILE.parent.parent / 'src/modules/yolov5/smoke_BW_new.pt')
-
 
 
 #%%
@@ -166,11 +178,12 @@ def main():
 
     # %%
     # loading camera distortion parameters
+
     cal_path = Path(FILE.parents[1] / 'src/gopro_intrinsics.npz')
     cal = np.load(cal_path)
     mtx = cal['cam_matrix']
     dist = cal['distortion_coeff']
-    
+
     _,tmp = cap.read()
     h,w = tmp.shape[:-1]
     newcameramtx, roi = cv.getOptimalNewCameraMatrix(mtx, dist, (w,h), 0, (w,h))
@@ -263,12 +276,11 @@ def main():
                 mask[y1:y2,x1:x2] = 0
                 prev = motionHomography(prev,curr,mask,debugging=DEBUG)
 
-
-
             
             if USE_OPTICAL_FLOW:
                 # using dense optical flow with RLOF
                 # flow = cv.optflow.calcOpticalFlowDenseRLOF(prev[y1:y2,x1:x2,:],curr[y1:y2,x1:x2,:],None) # using defaults for now
+
 
                 # computing flow outside the bounding box
                 t1 = time.time()
@@ -408,9 +420,11 @@ def main():
                         # compensating for external motion using flow outside bounding box
                         flow[:,:,0] -= flow_outside_x
                         flow[:,:,1] -= flow_outside_y
+
                 else:
                     flow_outside_x=flow_outside_y=0
                 
+
 
                 if USE_FILTER_FLOW:
                     # filter out low displacements
@@ -451,6 +465,7 @@ def main():
             else:
                 result = cv.rectangle(prev.copy(),(x1,y1),(x2,y2),color=[0,0,255],thickness=3)
                 # result = plot_flow_v2(prev.copy(),flow,flow_outside,[x1,x2,y1,y2])
+
             # %%
             # fig,ax = plt.subplots(1,2)
             # ax[0].hist(flow[:,:,0].flatten())
@@ -535,8 +550,7 @@ def detect_init(weights=YOLOv5_ROOT / 'yolov5s.pt'):
         model.to(device)    # then sends to GPU
     else:
         model = DetectMultiBackend(weights, device=device)
-    
-    # model.warmup()
+
     
     stride, names, pt = model.stride, model.names, model.pt
     # print(names)
@@ -608,8 +622,7 @@ def detect_smoke(img0,imgsz,model,device,names,savenum=None):
                 xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                 confidence = float(conf)
                 object_class = names[int(cls)]
-                
-                print(object_class)
+
                 # if save_img or save_crop or view_img:  # Add bbox to image
                 if VIEW_IMG:
                     c = int(cls)  # integer class
@@ -626,6 +639,7 @@ def detect_smoke(img0,imgsz,model,device,names,savenum=None):
         bestobject = []
         bestconf = 0
         for ob in obj:
+
             if not engine:
                 if ob.object_class == target_name and ob.confidence > bestconf:
                     bestobject = [ob]
@@ -634,6 +648,7 @@ def detect_smoke(img0,imgsz,model,device,names,savenum=None):
                 if ob.object_class == 'class0' and ob.confidence > bestconf: # tensorrt loses the names
                     bestobject = [ob]
                     bestconf = ob.confidence  
+
     else:
         bestobject = [ob]
         bestconf = ob.confidence
@@ -832,6 +847,7 @@ def plot_flow_v2(img,flow_in,flow_all,roi):
     
     return img
 
+
 def flow_segment(flow_img):
     # reshape the image to a 2D array of pixels and 3 color values (RGB)
     pixel_values = flow_img.reshape((-1, flow_img.shape[2]))
@@ -910,6 +926,7 @@ def KMeans(x, K=2, Niter=10, use_cuda=True,verbose=False):
         )
 
     return cl, c
+
     
 if __name__=='__main__':
     main()

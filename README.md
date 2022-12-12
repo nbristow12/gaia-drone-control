@@ -125,6 +125,8 @@ https://www.jetsonhacks.com/nvidia-jetson-nano-j41-header-pinout/
 |   5 RTS           |   36 (UART_2_CTS) |
 |   6 GND           |   6 (GND)         |
 
+If using the Jetson Xavier, connect from the Pixhawk's USB telemetry to a standard USB port on the Jetson Xavier.
+
 
 ## Appendix B: Simulation Environment Setup
 
